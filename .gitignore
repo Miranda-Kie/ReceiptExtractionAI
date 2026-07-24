@@ -50,6 +50,10 @@ appsettings.*.local.json
 *.db-shm
 *.db-wal
 
+# React / Node
+client/node_modules/
+client/dist/
+
 # Local tooling / IDE
 .cursor/
 job-search/
