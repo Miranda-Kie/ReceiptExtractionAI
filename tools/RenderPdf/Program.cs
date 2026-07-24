@@ -1,0 +1,11 @@
+using PDFtoImage;
+using SkiaSharp;
+var path = args[0];
+var outPath = args[1];
+var page = args.Length > 2 ? int.Parse(args[2]) : 0;
+var bytes = File.ReadAllBytes(path);
+using var bitmap = Conversion.ToImage(bytes, page, null, new RenderOptions(Dpi: 200));
+using var image = SKImage.FromBitmap(bitmap);
+using var data = image.Encode(SKEncodedImageFormat.Png, 90);
+await File.WriteAllBytesAsync(outPath, data.ToArray());
+Console.WriteLine($"Wrote {outPath} {bitmap.Width}x{bitmap.Height}");

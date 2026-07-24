@@ -1,0 +1,14 @@
+{
+  "id": "hydro-account-style",
+  "sourceFileName": "Toronto Hydro.pdf",
+  "description": "Utility bill with Account Number as stable id",
+  "ocrText": "Toronto Hydro\nAccount Number: 70127653\nInvoice Number: 9876543210\nInvoice Date: 2026-03-15\nElectricity charges\nSubtotal 100.00\nHST 13.00\nTotal Amount Due 113.00 CAD\n",
+  "expected": {
+    "storeNameContains": "Hydro",
+    "invoiceNumber": "9876543210",
+    "receiptDate": "2026-03-15",
+    "totalAmount": 113.00,
+    "gstHst": 13.00,
+    "currency": "CAD"
+  }
+}

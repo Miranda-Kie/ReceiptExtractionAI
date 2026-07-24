@@ -1,0 +1,12 @@
+{
+  "id": "generic-invoice-label",
+  "sourceFileName": "generic-invoice.pdf",
+  "description": "Simple invoice with clear Invoice # and totals",
+  "ocrText": "Green Planet Market\nINVOICE #\n43704\nDate: 10-04-2026\nSubtotal 45.00\nHST 5.85\nTotal 50.85\nCAD\n",
+  "expected": {
+    "storeNameContains": "Green Planet",
+    "invoiceNumber": "43704",
+    "totalAmount": 50.85,
+    "gstHst": 5.85
+  }
+}

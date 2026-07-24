@@ -1,0 +1,13 @@
+{
+  "id": "ai-premium-pos-stamp",
+  "sourceFileName": "AI Premium Food Mart.pdf",
+  "description": "Thermal grocery slip with P-prefixed POS receipt stamp",
+  "ocrText": "AI-Premium Food Mart\n1865 Eglinton Ave W\nToronto ON\nSub Total\n17.25\nHST\n0.04\nhst5% 0.00\nTotal after tax\n17.29\nCredit Card\n17.29\n04/30 11:41 Receipt\nP8260430114116\nThank you\n",
+  "expected": {
+    "storeNameContains": "Premium",
+    "invoiceNumber": "P8260430114116",
+    "receiptDate": "2026-04-30",
+    "totalAmount": 17.29,
+    "gstHst": 0.04
+  }
+}

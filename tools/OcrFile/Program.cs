@@ -1,0 +1,12 @@
+﻿using Tesseract;
+var tessData = args[0];
+var imgPath = args[1];
+using var engine = new TesseractEngine(tessData, "eng", EngineMode.LstmOnly);
+engine.SetVariable("user_defined_dpi", "300");
+using var pix = Pix.LoadFromFile(imgPath);
+using var gray = pix.ConvertRGBToGray();
+using var scaled = gray.Scale(1.5f, 1.5f);
+using var binary = scaled.BinarizeOtsuAdaptiveThreshold(200, 200, 0, 0, 0.1f);
+using var page = engine.Process(binary, PageSegMode.SparseText);
+Console.WriteLine($"conf={page.GetMeanConfidence():F1}");
+Console.WriteLine(page.GetText());

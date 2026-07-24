@@ -1,0 +1,13 @@
+{
+  "id": "ai-premium-reject-fey-junk",
+  "sourceFileName": "AI Premium Food Mart.pdf",
+  "description": "OCR junk FEY6031 must not become invoice; rebuild POS from date/time when stamp mangled",
+  "ocrText": "AI-Premium Food Mart\n1865 Eglinton Ave W\nToronto ON\nSub Total\n17.25\nHST\n0.04\nTotal after tax\n17.29\nCredit Card\n17.29\n03/19 12:41 Receipt\nFEY6031\nThank you\n",
+  "expected": {
+    "storeNameContains": "Premium",
+    "invoiceNumber": "P260319124100",
+    "receiptDate": "2026-03-19",
+    "totalAmount": 17.29,
+    "gstHst": 0.04
+  }
+}

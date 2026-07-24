@@ -1,0 +1,12 @@
+﻿/* Scoped layout overrides kept minimal so site.css owns the visual system. */
+
+a.navbar-brand {
+  white-space: nowrap;
+  text-align: left;
+  word-break: normal;
+}
+
+button.accept-policy {
+  font-size: 1rem;
+  line-height: inherit;
+}

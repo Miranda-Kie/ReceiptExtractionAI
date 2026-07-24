@@ -1,0 +1,802 @@
+@model HstReceipts.Web.Models.ReceiptPreviewViewModel
+@{
+    ViewData["Title"] = "Upload Receipts";
+}
+
+<section class="receipt-upload">
+    <header class="page-head">
+        <h1>Receipt Upload</h1>
+        <p>Drop or upload receipt images and PDFs to extract store, invoice, tax, and totals.</p>
+    </header>
+
+    @if (Model.ShowAiLearningToggle)
+    {
+        <div class="ai-toggle-bar">
+            <form asp-controller="Receipts" asp-action="SetAiLearning" method="post" class="ai-toggle-form">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="enabled" value="@(Model.AiLearningEnabled ? "false" : "true")" />
+                <label class="ai-toggle">
+                    <input type="checkbox"
+                           class="ai-toggle-input"
+                           @(Model.AiLearningEnabled ? "checked" : null)
+                           @(Model.AiLearningConfigured ? null : "disabled")
+                           onchange="this.form.submit()" />
+                    <span class="ai-toggle-track" aria-hidden="true"></span>
+                    <span class="ai-toggle-copy">
+                        <strong>AI learning</strong>
+                        @if (!Model.AiLearningConfigured)
+                        {
+                            <span class="d-block toolbar-note">Set <code>AiLearning:ApiKey</code> in appsettings to enable this.</span>
+                        }
+                        else if (Model.AiLearningEnabled)
+                        {
+                            <span class="d-block toolbar-note">On — <strong>Export Excel and save to database</strong> learns store, currency, invoice, date, subtotal, HST, and total labels when you correct them.</span>
+                        }
+                        else
+                        {
+                            <span class="d-block toolbar-note">Off — <strong>Export Excel and save to database</strong> skips the AI API. Export Excel only never uses AI.</span>
+                        }
+                    </span>
+                </label>
+            </form>
+        </div>
+    }
+
+    <div asp-validation-summary="All" class="text-danger mb-3"></div>
+
+    <div id="ai-learning-toast" class="alert alert-info d-none" role="status"></div>
+
+    @if (!string.IsNullOrWhiteSpace(Model.Message))
+    {
+        <div class="alert @(Model.SavedToDatabase ? "alert-success" : "alert-info")">@Model.Message</div>
+    }
+
+    <form asp-controller="Receipts" asp-action="Process" method="post" enctype="multipart/form-data" id="upload-form">
+        @Html.AntiForgeryToken()
+
+        <div id="drop-zone" class="drop-zone mb-3" tabindex="0" role="button" aria-label="Upload receipt folder">
+            <div class="drop-zone-content">
+                <p class="drop-title mb-1">Drop a folder of receipts here</p>
+                <p class="mb-3 text-muted small">or click to choose a folder from your computer</p>
+                <p id="file-count" class="file-count mb-0" data-empty="true">No files selected</p>
+            </div>
+            <input type="file"
+                   id="folder-input"
+                   name="files"
+                   class="drop-zone-input"
+                   webkitdirectory
+                   directory
+                   multiple
+                   accept=".jpg,.jpeg,.png,.webp,.tif,.tiff,.bmp,.pdf,.csv,image/*,application/pdf,text/csv" />
+            </div>
+
+        <div class="d-flex flex-wrap gap-2 mb-4">
+            <button type="submit" id="process-btn" class="btn btn-stamp" disabled>Extract receipt data</button>
+            <label class="btn btn-ghost mb-0">
+                Choose individual files
+                <input type="file"
+                       id="files-input"
+                       class="d-none"
+                       multiple
+                       accept=".jpg,.jpeg,.png,.webp,.tif,.tiff,.bmp,.pdf,.csv,image/*,application/pdf,text/csv" />
+            </label>
+        </div>
+    </form>
+
+    @if (Model.Receipts.Count > 0)
+    {
+        <form asp-controller="Receipts" asp-action="DownloadExcelOnly" method="post" id="preview-form">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="batchId" value="@Model.BatchId" />
+
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2 preview-toolbar">
+                <p class="toolbar-note mb-0 me-auto">
+                    Check columns to include in Excel.
+                    <span class="d-block"><strong>Export Excel and save to database</strong> uses <code>Id</code> as the table primary key. Rows are matched for update by InvoiceNumber + Date (a different date inserts a new row). Confirmation appears only when that match exists and other fields differ. AI learning runs for Admin when the toggle is on. <strong>Export Excel only</strong> downloads the file with no database write and no learning.</span>
+                </p>
+                <button type="button" class="btn btn-sm btn-ghost" id="select-all-fields">Select all</button>
+                <button type="button" class="btn btn-sm btn-ghost" id="clear-all-fields">Clear</button>
+                <button type="button"
+                        id="export-excel-btn"
+                        class="btn btn-stamp"
+                        data-compare-url="@Url.Action("CompareForExport", "Receipts")"
+                        data-export-url="@Url.Action("DownloadExcel", "Receipts")">
+                    Export Excel and save to database
+                </button>
+                <button type="button"
+                        id="export-excel-only-btn"
+                        class="btn btn-ghost"
+                        data-export-url="@Url.Action("DownloadExcelOnly", "Receipts")">
+                    Export Excel only
+                </button>
+            </div>
+
+            <div class="table-responsive">
+                @{
+                    var export = Model.ExportColumns ?? HstReceipts.Core.Models.ExcelExportColumns.All();
+                }
+                <table class="table table-striped align-middle preview-edit-table">
+                    <thead>
+                        <tr>
+                            <th>
+                                <label class="export-field-toggle">
+                                    <input type="checkbox" name="exportFields" value="StoreName" class="form-check-input export-field" @(export.StoreName ? "checked" : null) />
+                                    StoreName <span class="text-danger fw-normal">* required</span>
+                                </label>
+                            </th>
+                            <th>
+                                <label class="export-field-toggle">
+                                    <input type="checkbox" name="exportFields" value="InvoiceNumber" class="form-check-input export-field" @(export.InvoiceNumber ? "checked" : null) />
+                                    InvoiceNumber <span class="text-muted fw-normal">(optional)</span>
+                                </label>
+                            </th>
+                            <th>
+                                <label class="export-field-toggle">
+                                    <input type="checkbox" name="exportFields" value="Currency" class="form-check-input export-field" @(export.Currency ? "checked" : null) />
+                                    Currency <span class="text-muted fw-normal">(string)</span>
+                                </label>
+                            </th>
+                            <th>
+                                <label class="export-field-toggle">
+                                    <input type="checkbox" name="exportFields" value="Subtotal" class="form-check-input export-field" @(export.Subtotal ? "checked" : null) />
+                                    Subtotal <span class="text-muted fw-normal">(number)</span>
+                                </label>
+                            </th>
+                            <th>
+                                <label class="export-field-toggle">
+                                    <input type="checkbox" name="exportFields" value="GstHst" class="form-check-input export-field" @(export.GstHst ? "checked" : null) />
+                                    HST/GST <span class="text-muted fw-normal">(number)</span>
+                                </label>
+                            </th>
+                            <th>
+                                <label class="export-field-toggle">
+                                    <input type="checkbox" name="exportFields" value="TotalAmount" class="form-check-input export-field" @(export.TotalAmount ? "checked" : null) />
+                                    TotalAmount <span class="text-muted fw-normal">(number)</span>
+                                </label>
+                            </th>
+                            <th>
+                                <label class="export-field-toggle">
+                                    <input type="checkbox" name="exportFields" value="ReceiptDate" class="form-check-input export-field" @(export.ReceiptDate ? "checked" : null) />
+                                    Date <span class="text-danger fw-normal">* required</span>
+                                </label>
+                            </th>
+                            <th>
+                                <label class="export-field-toggle">
+                                    <input type="checkbox" name="exportFields" value="TransactionTime" class="form-check-input export-field" @(export.TransactionTime ? "checked" : null) />
+                                    TransactionTime <span class="text-muted fw-normal">(string)</span>
+                                </label>
+                            </th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @for (var i = 0; i < Model.Receipts.Count; i++)
+                    {
+                        var receipt = Model.Receipts[i];
+                        <tr class="@(receipt.Success ? "" : "table-warning")">
+                            <td>
+                                <input class="form-control form-control-sm"
+                                       name="receipts[@i].StoreName"
+                                       value="@receipt.StoreName"
+                                       autocomplete="off" />
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm"
+                                       name="receipts[@i].InvoiceNumber"
+                                       value="@receipt.InvoiceNumber"
+                                       autocomplete="off" />
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm preview-currency"
+                                       name="receipts[@i].Currency"
+                                       value="@receipt.Currency"
+                                       placeholder="CAD"
+                                       autocomplete="off" />
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm preview-number"
+                                       type="number"
+                                       step="0.01"
+                                       name="receipts[@i].Subtotal"
+                                       value="@(receipt.Subtotal?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
+                                       inputmode="decimal" />
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm preview-number"
+                                       type="number"
+                                       step="0.01"
+                                       name="receipts[@i].GstHst"
+                                       value="@(receipt.GstHst?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
+                                       inputmode="decimal" />
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm preview-number"
+                                       type="number"
+                                       step="0.01"
+                                       name="receipts[@i].TotalAmount"
+                                       value="@(receipt.TotalAmount?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
+                                       inputmode="decimal" />
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm preview-date"
+                                       type="date"
+                                       name="receipts[@i].ReceiptDate"
+                                       value="@(receipt.ReceiptDate?.ToString("yyyy-MM-dd"))" />
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm preview-datetime"
+                                       name="receipts[@i].TransactionTime"
+                                       value="@receipt.TransactionTime"
+                                       placeholder="HH:mm:ss"
+                                       autocomplete="off" />
+                            </td>
+                            <td class="status-cell">
+                                @{
+                                    var statusLabel = !receipt.Success
+                                        ? "Error"
+                                        : receipt.Warnings.Count > 0
+                                            ? "Warnings"
+                                            : "OK";
+                                    var statusClass = !receipt.Success
+                                        ? "status-error"
+                                        : receipt.Warnings.Count > 0
+                                            ? "status-warn"
+                                            : "status-ok";
+                                    var detailParts = new List<string>();
+                                    if (!string.IsNullOrWhiteSpace(receipt.ErrorMessage))
+                                    {
+                                        detailParts.Add(receipt.ErrorMessage!);
+                                    }
+                                    foreach (var warning in receipt.Warnings)
+                                    {
+                                        if (!detailParts.Contains(warning, StringComparer.Ordinal))
+                                        {
+                                            detailParts.Add(warning);
+                                        }
+                                    }
+                                    var detailText = detailParts.Count > 0
+                                        ? string.Join(" | ", detailParts)
+                                        : "No issues reported for this row.";
+                                }
+                                <span class="status-badge @statusClass" data-status-badge>@statusLabel</span>
+                                <button type="button"
+                                        class="btn btn-sm btn-ghost status-detail-btn @(statusLabel == "OK" ? "d-none" : null)"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#status-detail-modal"
+                                        data-status="@statusLabel"
+                                        data-detail="@detailText"
+                                        data-status-detail>
+                                    Details
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </form>
+    }
+</section>
+
+<div class="modal fade" id="status-detail-modal" tabindex="-1" aria-labelledby="status-detail-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content status-detail-modal">
+            <div class="modal-header">
+                <h2 class="modal-title h5" id="status-detail-title">Row status</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="status-detail-label mb-2" id="status-detail-label"></p>
+                <pre class="status-detail-body mb-0" id="status-detail-body"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="export-confirm-modal" tabindex="-1" aria-labelledby="export-confirm-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+        <div class="modal-content status-detail-modal">
+            <div class="modal-header">
+                <h2 class="modal-title h5" id="export-confirm-title">Confirm overwrite &amp; export</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="toolbar-note mb-3" id="export-confirm-summary"></p>
+                <div id="export-confirm-conflicts"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-stamp" id="export-confirm-continue">Overwrite, save &amp; export</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(() => {
+    const dropZone = document.getElementById('drop-zone');
+    const folderInput = document.getElementById('folder-input');
+    const filesInput = document.getElementById('files-input');
+    const fileCount = document.getElementById('file-count');
+    const processBtn = document.getElementById('process-btn');
+    const form = document.getElementById('upload-form');
+    let selectedFiles = [];
+
+    function isSupported(file) {
+        const name = (file.name || '').toLowerCase();
+        return /\.(jpe?g|png|webp|tiff?|bmp|pdf|csv)$/i.test(name);
+    }
+
+    function updateProcessButton() {
+        processBtn.disabled = selectedFiles.length === 0;
+    }
+
+    function withUploadPath(file, relativePath) {
+        const path = (relativePath || file.webkitRelativePath || file.name || '').replace(/\\/g, '/');
+        if (!path || path === file.name) {
+            return file;
+        }
+        return new File([file], path, { type: file.type, lastModified: file.lastModified });
+    }
+
+    function syncInputs(files) {
+        selectedFiles = Array.from(files)
+            .filter(isSupported)
+            .map(f => withUploadPath(f, f.webkitRelativePath));
+        const dataTransfer = new DataTransfer();
+        selectedFiles.forEach(f => dataTransfer.items.add(f));
+        folderInput.files = dataTransfer.files;
+        filesInput.value = '';
+        fileCount.textContent = selectedFiles.length === 0
+            ? 'No files selected'
+            : `${selectedFiles.length} file${selectedFiles.length === 1 ? '' : 's'} selected`;
+        fileCount.dataset.empty = selectedFiles.length === 0 ? 'true' : 'false';
+        updateProcessButton();
+    }
+
+    updateProcessButton();
+
+    dropZone.addEventListener('click', (e) => {
+        if (e.target !== folderInput) {
+            folderInput.click();
+        }
+    });
+    folderInput.addEventListener('change', () => syncInputs(folderInput.files));
+    filesInput.addEventListener('change', () => syncInputs(filesInput.files));
+
+    // Keep the file input from swallowing drop events awkwardly: hide it off-canvas visually but leave accessible via click.
+    folderInput.style.pointerEvents = 'none';
+
+    ['dragenter', 'dragover'].forEach(evt => {
+        dropZone.addEventListener(evt, e => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('drag-over');
+        });
+    });
+
+    ['dragleave', 'drop'].forEach(evt => {
+        dropZone.addEventListener(evt, e => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+        });
+    });
+
+    dropZone.addEventListener('drop', async e => {
+        const items = e.dataTransfer.items;
+        if (items && items.length && items[0].webkitGetAsEntry) {
+            const files = await readDroppedEntries(items);
+            syncInputs(files);
+            return;
+        }
+        syncInputs(e.dataTransfer.files);
+    });
+
+    async function readDroppedEntries(items) {
+        const entries = [];
+        for (const item of items) {
+            const entry = item.webkitGetAsEntry?.();
+            if (entry) entries.push(entry);
+        }
+        const files = [];
+        for (const entry of entries) {
+            await walkEntry(entry, files);
+        }
+        return files;
+    }
+
+    function walkEntry(entry, files, parentPath = '') {
+        return new Promise((resolve, reject) => {
+            if (entry.isFile) {
+                const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+                entry.file(file => {
+                    files.push(withUploadPath(file, relativePath));
+                    resolve();
+                }, reject);
+                return;
+            }
+            if (entry.isDirectory) {
+                const dirPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+                const reader = entry.createReader();
+                const readBatch = () => {
+                    reader.readEntries(async batch => {
+                        if (!batch.length) {
+                            resolve();
+                            return;
+                        }
+                        for (const child of batch) {
+                            await walkEntry(child, files, dirPath);
+                        }
+                        readBatch();
+                    }, reject);
+                };
+                readBatch();
+                return;
+            }
+            resolve();
+        });
+    }
+
+    form.addEventListener('submit', () => {
+        processBtn.disabled = true;
+        processBtn.textContent = 'Processing…';
+    });
+
+    const setExportFields = (checked) => {
+        document.querySelectorAll('.export-field').forEach(cb => { cb.checked = checked; });
+    };
+    document.getElementById('select-all-fields')?.addEventListener('click', () => setExportFields(true));
+    document.getElementById('clear-all-fields')?.addEventListener('click', () => setExportFields(false));
+
+    const statusModal = document.getElementById('status-detail-modal');
+    statusModal?.addEventListener('show.bs.modal', (event) => {
+        const button = event.relatedTarget;
+        if (!button) return;
+        const status = button.getAttribute('data-status') || 'Status';
+        const detail = button.getAttribute('data-detail') || '';
+        const title = document.getElementById('status-detail-title');
+        const label = document.getElementById('status-detail-label');
+        const body = document.getElementById('status-detail-body');
+        if (title) title.textContent = `Row status: ${status}`;
+        if (label) label.textContent = status;
+        if (body) body.textContent = detail.replace(/\s*\|\s*/g, '\n');
+    });
+
+    const previewForm = document.getElementById('preview-form');
+
+    function parseMoney(input) {
+        if (!input) return null;
+        const raw = String(input.value ?? '').trim();
+        if (!raw) return null;
+        const n = Number(raw);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function round2(n) {
+        return Math.round((n + Number.EPSILON) * 100) / 100;
+    }
+
+    function field(row, suffix) {
+        return row.querySelector(`input[name$=".${suffix}"]`);
+    }
+
+    function validatePreviewRow(row) {
+        const errors = [];
+        const warnings = [];
+
+        const invoiceInput = field(row, 'InvoiceNumber');
+        const storeInput = field(row, 'StoreName');
+        const subtotalInput = field(row, 'Subtotal');
+        const gstInput = field(row, 'GstHst');
+        const totalInput = field(row, 'TotalAmount');
+        const dateInput = field(row, 'ReceiptDate');
+
+        const invoice = String(invoiceInput?.value || '').trim();
+        const store = String(storeInput?.value || '').trim();
+        const subtotal = parseMoney(subtotalInput);
+        const gst = parseMoney(gstInput);
+        const total = parseMoney(totalInput);
+        const date = String(dateInput?.value || '').trim();
+
+        // Clear previous invalid marks, then re-apply.
+        [invoiceInput, storeInput, subtotalInput, gstInput, totalInput, dateInput].forEach(el => {
+            el?.classList.remove('is-invalid');
+        });
+
+        if (!store) {
+            errors.push('StoreName is required and cannot be empty.');
+            storeInput?.classList.add('is-invalid');
+        }
+
+        if (subtotal === null || gst === null || total === null) {
+            warnings.push('Amount authentication skipped: Subtotal, HST/GST, and TotalAmount are all required.');
+            if (subtotal === null) subtotalInput?.classList.add('is-invalid');
+            if (gst === null) gstInput?.classList.add('is-invalid');
+            if (total === null) totalInput?.classList.add('is-invalid');
+        } else {
+            const expected = round2(subtotal + gst);
+            const actual = round2(total);
+            const delta = Math.abs(actual - expected);
+            if (delta > 0.02) {
+                const message =
+                    `Amount authentication failed: TotalAmount (${actual.toFixed(2)}) must equal Subtotal (${subtotal.toFixed(2)}) + HST/GST (${gst.toFixed(2)}) = ${expected.toFixed(2)} (difference ${delta.toFixed(2)}).`;
+                errors.push(message);
+                totalInput?.classList.add('is-invalid');
+                subtotalInput?.classList.add('is-invalid');
+                gstInput?.classList.add('is-invalid');
+            }
+        }
+
+        if (!date) {
+            errors.push('Date is required and cannot be empty.');
+            dateInput?.classList.add('is-invalid');
+        }
+
+        const badge = row.querySelector('[data-status-badge]');
+        const detailBtn = row.querySelector('[data-status-detail]');
+        let status = 'OK';
+        let statusClass = 'status-ok';
+        if (errors.length > 0) {
+            status = 'Error';
+            statusClass = 'status-error';
+        } else if (warnings.length > 0) {
+            status = 'Warnings';
+            statusClass = 'status-warn';
+        }
+
+        if (badge) {
+            badge.textContent = status;
+            badge.className = `status-badge ${statusClass}`;
+        }
+
+        const detailText = [...errors, ...warnings].join(' | ') || 'No issues reported for this row.';
+        if (detailBtn) {
+            detailBtn.setAttribute('data-status', status);
+            detailBtn.setAttribute('data-detail', detailText);
+            detailBtn.classList.toggle('d-none', status === 'OK');
+        }
+
+        row.classList.toggle('table-warning', status !== 'OK');
+        return { status, errors, warnings };
+    }
+
+    function validateAllPreviewRows() {
+        if (!previewForm) return;
+        previewForm.querySelectorAll('tbody tr').forEach(validatePreviewRow);
+    }
+
+    previewForm?.addEventListener('input', (event) => {
+        const row = event.target?.closest?.('tbody tr');
+        if (row) validatePreviewRow(row);
+    });
+    previewForm?.addEventListener('change', (event) => {
+        const row = event.target?.closest?.('tbody tr');
+        if (row) validatePreviewRow(row);
+    });
+
+    // Keep status in sync with current typed values after page load.
+    validateAllPreviewRows();
+
+    const exportBtn = document.getElementById('export-excel-btn');
+    const exportOnlyBtn = document.getElementById('export-excel-only-btn');
+    const exportConfirmModalEl = document.getElementById('export-confirm-modal');
+    const exportConfirmContinue = document.getElementById('export-confirm-continue');
+    const exportConfirmSummary = document.getElementById('export-confirm-summary');
+    const exportConfirmConflicts = document.getElementById('export-confirm-conflicts');
+
+    function submitExportExcel(exportUrl) {
+        if (!previewForm || !exportUrl) return;
+
+        // Prefer fetch so we can show AI learning status from the response header,
+        // then still download the Excel file.
+        const formData = new FormData(previewForm);
+        const toast = document.getElementById('ai-learning-toast');
+        fetch(exportUrl, {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin'
+        }).then(async (res) => {
+            const learningHeader = res.headers.get('X-Ai-Learning-Result');
+            if (toast && learningHeader) {
+                toast.textContent = decodeURIComponent(learningHeader);
+                toast.classList.remove('d-none');
+                toast.classList.toggle('alert-warning', /skipped|failed/i.test(toast.textContent));
+                toast.classList.toggle('alert-info', !/skipped|failed/i.test(toast.textContent));
+            }
+
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text || `Export failed (${res.status})`);
+            }
+
+            const blob = await res.blob();
+            const disposition = res.headers.get('Content-Disposition') || '';
+            const match = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+            const fileName = match ? match[1].replace(/['"]/g, '') : 'receipts.xlsx';
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }).catch((err) => {
+            console.error(err);
+            // Fallback to classic form post if fetch fails (e.g. older browser).
+            previewForm.setAttribute('action', exportUrl);
+            previewForm.submit();
+        });
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function renderConflicts(payload) {
+        const conflicts = payload.conflicts || payload.Conflicts || [];
+        const newCount = payload.newCount ?? payload.NewCount ?? 0;
+        const unchangedCount = payload.unchangedCount ?? payload.UnchangedCount ?? 0;
+        const skippedCount = payload.skippedCount ?? payload.SkippedCount ?? 0;
+        const sameDateCount = conflicts.filter(c => c.sameDateMatch || c.SameDateMatch).length;
+
+        if (exportConfirmSummary) {
+            const parts = [];
+            if (sameDateCount) {
+                parts.push(`${sameDateCount} existing receipt(s) match InvoiceNumber and Date and will be overwritten`);
+            }
+            if (newCount) parts.push(`${newCount} new will be added`);
+            if (unchangedCount) parts.push(`${unchangedCount} unchanged`);
+            if (skippedCount) parts.push(`${skippedCount} skipped (missing StoreName/Currency/Date)`);
+            exportConfirmSummary.textContent =
+                (parts.length ? parts.join(', ') : `${conflicts.length} receipt(s) need confirmation`) +
+                '. Review below, then confirm to overwrite and export.';
+        }
+
+        if (!exportConfirmConflicts) return;
+        exportConfirmConflicts.innerHTML = conflicts.map(conflict => {
+            const store = conflict.storeName || conflict.StoreName || '';
+            const invoice = conflict.invoiceNumber || conflict.InvoiceNumber || '';
+            const date = conflict.receiptDate || conflict.ReceiptDate || '';
+            const sameDate = !!(conflict.sameDateMatch || conflict.SameDateMatch);
+            const diffs = conflict.differences || conflict.Differences || [];
+            const rows = diffs.map(d => {
+                const field = d.field || d.Field || '';
+                const dbVal = d.databaseValue || d.DatabaseValue || '';
+                const previewVal = d.previewValue || d.PreviewValue || '';
+                return `<tr><td>${escapeHtml(field)}</td><td>${escapeHtml(dbVal)}</td><td>${escapeHtml(previewVal)}</td></tr>`;
+            }).join('');
+            const note = sameDate
+                ? `<p class="toolbar-note mb-2">Same invoice and date (${escapeHtml(date || 'empty')}) as an existing database row. Confirm to overwrite it.</p>`
+                : '';
+            const table = diffs.length
+                ? `<table class="table table-sm export-diff-table mb-0">
+                     <thead><tr><th>Field</th><th>Database</th><th>Preview</th></tr></thead>
+                     <tbody>${rows}</tbody>
+                   </table>`
+                : `<p class="toolbar-note mb-0">No other field differences — preview values will replace the existing row.</p>`;
+            return `
+              <div class="export-conflict-block mb-3">
+                <div class="export-conflict-key"><strong>${escapeHtml(store)}</strong> · Invoice ${escapeHtml(invoice)}${date ? ` · Date ${escapeHtml(date)}` : ''}</div>
+                ${note}
+                ${table}
+              </div>`;
+        }).join('');
+    }
+
+    function findMissingRequiredRows() {
+        if (!previewForm) return { store: [], date: [] };
+        const missingStore = [];
+        const missingDate = [];
+        const rows = previewForm.querySelectorAll('tbody tr');
+        rows.forEach((row, index) => {
+            const storeInput = row.querySelector('input[name*=".StoreName"]');
+            const dateInput = row.querySelector('input[name*=".ReceiptDate"]');
+            if (!storeInput || !String(storeInput.value || '').trim()) {
+                missingStore.push(index + 1);
+            }
+            if (!dateInput || !String(dateInput.value || '').trim()) {
+                missingDate.push(index + 1);
+            }
+        });
+        return { store: missingStore, date: missingDate };
+    }
+
+    function showMissingRequiredError(missing, actionLabel) {
+        const parts = [];
+        if (missing.store.length === 1) {
+            parts.push(`row ${missing.store[0]} is missing StoreName`);
+        } else if (missing.store.length > 1) {
+            parts.push(`rows ${missing.store.join(', ')} are missing StoreName`);
+        }
+        if (missing.date.length === 1) {
+            parts.push(`row ${missing.date[0]} is missing Date`);
+        } else if (missing.date.length > 1) {
+            parts.push(`rows ${missing.date.join(', ')} are missing Date`);
+        }
+        alert(`Cannot ${actionLabel}: ${parts.join('; ')}. Enter the required values and try again.`);
+    }
+
+    exportOnlyBtn?.addEventListener('click', () => {
+        if (!previewForm) return;
+
+        validateAllPreviewRows();
+        const missing = findMissingRequiredRows();
+        if (missing.store.length > 0 || missing.date.length > 0) {
+            showMissingRequiredError(missing, 'export Excel');
+            return;
+        }
+
+        submitExportExcel(exportOnlyBtn.getAttribute('data-export-url'));
+    });
+
+    exportBtn?.addEventListener('click', async () => {
+        if (!previewForm) return;
+
+        validateAllPreviewRows();
+        const missing = findMissingRequiredRows();
+        if (missing.store.length > 0 || missing.date.length > 0) {
+            showMissingRequiredError(missing, 'export Excel and save');
+            return;
+        }
+
+        const compareUrl = exportBtn.getAttribute('data-compare-url');
+        const exportUrl = exportBtn.getAttribute('data-export-url');
+        if (!compareUrl) {
+            submitExportExcel(exportUrl);
+            return;
+        }
+
+        exportBtn.disabled = true;
+        if (exportOnlyBtn) exportOnlyBtn.disabled = true;
+        const originalLabel = exportBtn.textContent;
+        exportBtn.textContent = 'Checking…';
+
+        try {
+            const response = await fetch(compareUrl, {
+                method: 'POST',
+                body: new FormData(previewForm),
+                credentials: 'same-origin'
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                alert(err.error || err.Error || 'Could not compare preview with the database.');
+                return;
+            }
+
+            const payload = await response.json();
+            const conflicts = payload.conflicts || payload.Conflicts || [];
+            if (!conflicts.length) {
+                // New / unchanged only — no confirmation UI, just upsert + export.
+                submitExportExcel(exportUrl);
+                return;
+            }
+
+            renderConflicts(payload);
+            const modal = bootstrap.Modal.getOrCreateInstance(exportConfirmModalEl);
+            modal.show();
+        } catch (e) {
+            console.error(e);
+            alert('Could not compare preview with the database.');
+        } finally {
+            exportBtn.disabled = false;
+            if (exportOnlyBtn) exportOnlyBtn.disabled = false;
+            exportBtn.textContent = originalLabel;
+        }
+    });
+
+    exportConfirmContinue?.addEventListener('click', () => {
+        const modal = bootstrap.Modal.getInstance(exportConfirmModalEl);
+        modal?.hide();
+        submitExportExcel(exportBtn?.getAttribute('data-export-url'));
+    });
+})();
+</script>
+}
