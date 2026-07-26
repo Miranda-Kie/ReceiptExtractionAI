@@ -81,8 +81,7 @@ export function useReceiptsExport({
         return
       }
       await downloadBlob(res, 'receipts.xlsx')
-      setBatchId(null)
-      setMessage('Excel downloaded. Upload receipts again to start a new preview.')
+      setMessage('Excel downloaded. You can export again or upload more receipts.')
     } finally {
       // setBusy(false) // Busy state is managed by parent or useReceiptsProcessing
     }
@@ -150,8 +149,7 @@ export function useReceiptsExport({
       setConflicts(null)
       const saveHeader = res.headers.get('X-Save-Result')
       await downloadBlob(res, 'receipts.xlsx')
-      setBatchId(null)
-      setMessage('Saved to database and Excel downloaded.')
+      setMessage('Saved to database and Excel downloaded. You can export again or upload more receipts.')
     } finally {
       // setBusy(false) // Busy state is managed by parent or useReceiptsProcessing
     }
