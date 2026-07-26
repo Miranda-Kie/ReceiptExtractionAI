@@ -75,8 +75,6 @@ export default function ReceiptsPage() {
   }, [])
 
   useEffect(() => {
-    if (!dragStartRef.current) return
-
     const handleMouseMove = (e: MouseEvent) => {
       if (!dragStartRef.current) return
       setModalPos({
