@@ -33,14 +33,18 @@ export function useReceiptsExport({
   }
 
   function validateRequired(): string | null {
+    const validatedReceipts = receipts.filter((r) => r.validated)
     const missingInvoice: number[] = []
     const missingStore: number[] = []
     const missingDate: number[] = []
-    receipts.forEach((r, i) => {
-      if (!r.invoiceNumber?.trim()) missingInvoice.push(i + 1)
-      if (!r.storeName?.trim()) missingStore.push(i + 1)
-      if (!r.receiptDate) missingDate.push(i + 1)
+
+    validatedReceipts.forEach((r) => {
+      const originalIndex = receipts.indexOf(r) + 1
+      if (!r.invoiceNumber?.trim()) missingInvoice.push(originalIndex)
+      if (!r.storeName?.trim()) missingStore.push(originalIndex)
+      if (!r.receiptDate) missingDate.push(originalIndex)
     })
+
     if (!missingInvoice.length && !missingStore.length && !missingDate.length) return null
     const parts: string[] = []
     if (missingInvoice.length) parts.push(`missing InvoiceNumber on row(s) ${missingInvoice.join(', ')}`)
