@@ -326,12 +326,45 @@ export default function ReceiptsPage() {
                           />
                         </td>
                         <td className="col-status">
-                          <span
-                            className={needsReview ? 'badge warn' : 'badge ok'}
-                            title={needsReview ? 'Needs review' : 'OK'}
-                          >
-                            {needsReview ? 'Review' : 'OK'}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span
+                              className={needsReview ? 'badge warn' : 'badge ok'}
+                              title={needsReview ? 'Needs review' : 'OK'}
+                            >
+                              {needsReview ? 'Review' : 'OK'}
+                            </span>
+                            {needsReview && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const errors: string[] = []
+                                  if (!r.invoiceNumber?.trim()) errors.push('Invoice Number is empty')
+                                  if (!r.storeName?.trim()) errors.push('Store Name is empty')
+                                  if (!r.currency?.trim()) errors.push('Currency is empty')
+                                  if (r.subtotal === null || r.subtotal === undefined) errors.push('Subtotal is empty')
+                                  if (r.gstHst === null || r.gstHst === undefined) errors.push('GST/HST is empty')
+                                  if (r.totalAmount === null || r.totalAmount === undefined) errors.push('Total Amount is empty')
+                                  if (!r.receiptDate) errors.push('Date is empty')
+                                  if (!r.transactionTime?.trim()) errors.push('Time is empty')
+                                  if (amountsBad) errors.push('Amounts do not match (Subtotal + Tax ≠ Total)')
+                                  setError(`Row ${i + 1} errors:\n• ${errors.join('\n• ')}`)
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: '0',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#d97706',
+                                  lineHeight: '1',
+                                }}
+                                title="Click to see error details"
+                                aria-label={`Show errors for row ${i + 1}`}
+                              >
+                                ⚠️
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td className="validate-cell col-validate">
                           <input
