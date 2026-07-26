@@ -1,0 +1,18 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "InboxContainer": "receipts-inbox",
+    "ResultsContainer": "receipts-results",
+    "ConnectionStrings__DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=HstReceipts;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true",
+    "Database__Provider": "SqlServer",
+    "DocumentIntelligence__Enabled": "true",
+    "DocumentIntelligence__Endpoint": "https://YOUR_RESOURCE.cognitiveservices.azure.com/",
+    "DocumentIntelligence__ApiKey": "YOUR_DOCUMENT_INTELLIGENCE_KEY",
+    "DocumentIntelligence__ModelId": "prebuilt-receipt",
+    "DocumentIntelligence__Locale": "en-CA",
+    "BlobStorage__Enabled": "true",
+    "BlobStorage__ConnectionString": "UseDevelopmentStorage=true"
+  }
+}

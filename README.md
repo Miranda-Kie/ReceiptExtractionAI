@@ -22,18 +22,17 @@ Never commit real passwords or API keys. If an API key was previously committed,
 | `src/HstReceipts.Web` | ASP.NET host + JSON API; serves React SPA |
 | `client` | React + TypeScript (Vite) frontend |
 | `src/HstReceipts.Core` | Entities, DTOs, interfaces |
-| `src/HstReceipts.Infrastructure` | EF Core + SQLite/SQL Server, Tesseract OCR, PdfPig, ClosedXML |
+| `src/HstReceipts.Infrastructure` | EF Core + Azure Document Intelligence (or local OCR fallback), ClosedXML |
 
 ## Prerequisites
 
 1. **.NET 10 SDK**
-2. **SQL Server** — LocalDB by default, or **Azure SQL**  
+2. **Azure AI Document Intelligence** (recommended) — create a Document Intelligence resource, then put `Endpoint` + `ApiKey` in gitignored `appsettings.Development.local.json` (see example). Model defaults to `prebuilt-receipt`.
+3. **SQL Server** — LocalDB by default, or **Azure SQL**  
    - Local: `(localdb)\mssqllocaldb` / database `HstReceipts` (see `appsettings.json`)  
    - Azure: put the connection string in gitignored `appsettings.Development.local.json` (see example file). Provider stays `SqlServer`.  
    - SQLite: set `Database:Provider` to `Sqlite` and `DefaultConnection` to `Data Source=hstreceipts.db` (recreate EF migrations for that provider).
-3. **Tesseract English trained data** at `src/HstReceipts.Web/tessdata/eng.traineddata`  
-   Already included in this repo. If missing, download from:  
-   https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata
+4. **Local OCR fallback (optional)** — only used when Document Intelligence is not enabled. Requires Tesseract English data at `src/HstReceipts.Web/tessdata/eng.traineddata` (included in this repo).
 
 ### Connect to Azure SQL
 
@@ -53,6 +52,30 @@ Never commit real passwords or API keys. If an API key was previously committed,
 4. Restart the app — startup runs `Database.Migrate()` against Azure and seeds users from that local file.
 
 Never commit real Azure passwords. Prefer Azure AD auth / managed identity in production.
+
+### Azure pipeline (required architecture)
+
+`React → .NET API → Blob Storage → Azure Function → Document Intelligence → SQL → preview → Save`
+
+1. **Azurite** (local blob) or a real Storage connection string in `BlobStorage:ConnectionString`
+2. `Processing:Mode` = `Pipeline` (default)
+3. `DocumentIntelligence:Enabled` = true with Endpoint + ApiKey
+4. Copy `src/HstReceipts.Functions/local.settings.json.example` → `local.settings.json` (same SQL + DI + storage values)
+5. Run Azurite, then the Function, then the web app:
+
+```powershell
+# Terminal 1 — Azurite (if using UseDevelopmentStorage=true)
+azurite --silent --location c:\azurite --debug c:\azurite\debug.log
+
+# Terminal 2 — Function
+cd src\HstReceipts.Functions
+func start
+
+# Terminal 3 — Web
+dotnet run --project src/HstReceipts.Web --urls http://localhost:5261
+```
+
+Flow: upload → API writes `ProcessingBatches` in SQL and blobs to inbox → Function runs `prebuilt-receipt` → writes `ProcessingBatchResults` in SQL → React polls `/api/receipts/batches/{id}` → you validate → **Save to database** (Receipts table).
 
 ## Frontend (React)
 
@@ -94,7 +117,7 @@ On startup the app applies EF Core migrations and creates/updates the `HstReceip
 
 1. Drag and drop a **folder** of receipts onto the drop zone, or click to choose a folder.
 2. You can also choose individual `.jpg` / `.png` / `.webp` / `.pdf` files.
-3. Click **Extract receipt data** to OCR/parse each file. Files with multiple receipts produce multiple rows (`file [1].pdf`, `file [2].pdf`, …).
+3. Click **Extract receipt data** to analyze each file with Azure Document Intelligence (or local OCR if DI is not configured). Files with multiple receipts produce multiple rows.
 4. Review the preview table (warnings appear when a field could not be parsed).
 5. Click **Save to database** to persist rows in SQL Server.
 6. Click **Export Excel** for an `.xlsx` with columns: `InvoiceNumber`, `StoreName`, `Currency`, `Subtotal`, `HST/GST`, `TotalAmount`, `Date`, `TransactionTime`.

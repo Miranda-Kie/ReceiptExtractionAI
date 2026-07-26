@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using HstReceipts.Core.Entities;
 using HstReceipts.Core.Interfaces;
+using HstReceipts.Infrastructure.Auth;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -13,14 +14,24 @@ namespace HstReceipts.Web.Controllers.Api;
 public sealed class AuthApiController : ControllerBase
 {
     private const string BatchSessionKey = "CurrentBatch";
-    private const string AiLearningSessionKey = "AiLearningEnabled";
 
     private readonly IUserAuthService _authService;
+    private readonly ILoginVerificationService _verification;
+    private readonly IEmailSender _emailSender;
+    private readonly IHostEnvironment _environment;
     private readonly ILogger<AuthApiController> _logger;
 
-    public AuthApiController(IUserAuthService authService, ILogger<AuthApiController> logger)
+    public AuthApiController(
+        IUserAuthService authService,
+        ILoginVerificationService verification,
+        IEmailSender emailSender,
+        IHostEnvironment environment,
+        ILogger<AuthApiController> logger)
     {
         _authService = authService;
+        _verification = verification;
+        _emailSender = emailSender;
+        _environment = environment;
         _logger = logger;
     }
 
@@ -33,15 +44,19 @@ public sealed class AuthApiController : ControllerBase
             return Ok(new { authenticated = false });
         }
 
+        var role = User.IsInRole(AppRoles.Owner) ? AppRoles.Owner
+            : User.IsInRole(AppRoles.Admin) ? AppRoles.Admin
+            : User.IsInRole(AppRoles.Officer) ? AppRoles.Officer
+            : User.IsInRole(AppRoles.Demo) ? AppRoles.Demo
+            : "User";
         return Ok(new
         {
             authenticated = true,
             username = User.Identity.Name,
-            role = User.IsInRole(AppRoles.Admin) ? AppRoles.Admin
-                : User.IsInRole(AppRoles.Officer) ? AppRoles.Officer
-                : User.IsInRole(AppRoles.Demo) ? AppRoles.Demo
-                : "User",
-            isAdmin = User.IsInRole(AppRoles.Admin),
+            role,
+            isOwner = AppRoles.IsOwner(role),
+            isAdmin = AppRoles.IsAdmin(role),
+            canManageUsers = AppRoles.CanManageUsers(role),
             isDemo = User.IsInRole(AppRoles.Demo)
         });
     }
@@ -50,6 +65,17 @@ public sealed class AuthApiController : ControllerBase
     {
         public string Username { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
+    }
+
+    public sealed class VerifyRequest
+    {
+        public string VerificationToken { get; set; } = string.Empty;
+        public string Code { get; set; } = string.Empty;
+    }
+
+    public sealed class ResendRequest
+    {
+        public string VerificationToken { get; set; } = string.Empty;
     }
 
     [HttpPost("login")]
@@ -68,11 +94,39 @@ public sealed class AuthApiController : ControllerBase
         }
 
         var user = result.User!;
+        if (string.IsNullOrWhiteSpace(user.Email))
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                new { error = "This account has no email on file for verification. Contact an administrator." });
+        }
+
+        var challenge = _verification.CreateChallenge(user);
+        var emailSent = await TrySendVerificationEmailAsync(challenge, cancellationToken);
+        _logger.LogInformation(
+            "Password OK for {Username}; verification required ({MaskedEmail}), emailSent={EmailSent}.",
+            user.Username,
+            challenge.MaskedEmail,
+            emailSent);
+
+        return Ok(BuildVerificationResponse(challenge, emailSent));
+    }
+
+    [HttpPost("verify")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Verify([FromBody] VerifyRequest request)
+    {
+        if (!_verification.TryConsume(request.VerificationToken ?? string.Empty, request.Code ?? string.Empty, out var snapshot) ||
+            snapshot is null)
+        {
+            return Unauthorized(new { error = "Invalid or expired verification code." });
+        }
+
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new(ClaimTypes.Name, user.Username),
-            new(ClaimTypes.Role, user.Role)
+            new(ClaimTypes.NameIdentifier, snapshot.Id.ToString()),
+            new(ClaimTypes.Name, snapshot.Username),
+            new(ClaimTypes.Role, snapshot.Role)
         };
 
         await ClearReceiptSessionAsync();
@@ -81,15 +135,45 @@ public sealed class AuthApiController : ControllerBase
             new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme)),
             new AuthenticationProperties { IsPersistent = false });
 
-        _logger.LogInformation("API sign-in for {Username} as {Role}.", user.Username, user.Role);
+        _logger.LogInformation("API verified sign-in for {Username} as {Role}.", snapshot.Username, snapshot.Role);
         return Ok(new
         {
             authenticated = true,
-            username = user.Username,
-            role = user.Role,
-            isAdmin = string.Equals(user.Role, AppRoles.Admin, StringComparison.OrdinalIgnoreCase),
+            username = snapshot.Username,
+            role = snapshot.Role,
+            isOwner = AppRoles.IsOwner(snapshot.Role),
+            isAdmin = AppRoles.IsAdmin(snapshot.Role),
+            canManageUsers = AppRoles.CanManageUsers(snapshot.Role),
             isDemo = false
         });
+    }
+
+    [HttpPost("resend-code")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResendCode(
+        [FromBody] ResendRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = _verification.Resend(request.VerificationToken ?? string.Empty);
+        if (!result.Ok || result.Challenge is null)
+        {
+            if (result.RetryAfterSeconds is int retryAfter)
+            {
+                Response.Headers.RetryAfter = retryAfter.ToString();
+                return StatusCode(
+                    StatusCodes.Status429TooManyRequests,
+                    new
+                    {
+                        error = result.Error ?? "Please wait before requesting another code.",
+                        retryAfterSeconds = retryAfter
+                    });
+            }
+
+            return Unauthorized(new { error = result.Error ?? "Verification session expired. Sign in again." });
+        }
+
+        var emailSent = await TrySendVerificationEmailAsync(result.Challenge, cancellationToken);
+        return Ok(BuildVerificationResponse(result.Challenge, emailSent));
     }
 
     /// <summary>
@@ -118,7 +202,9 @@ public sealed class AuthApiController : ControllerBase
             authenticated = true,
             username = "demo",
             role = AppRoles.Demo,
+            isOwner = false,
             isAdmin = false,
+            canManageUsers = false,
             isDemo = true
         });
     }
@@ -132,11 +218,79 @@ public sealed class AuthApiController : ControllerBase
         return Ok(new { authenticated = false });
     }
 
+    private async Task<bool> TrySendVerificationEmailAsync(
+        LoginVerificationChallenge challenge,
+        CancellationToken cancellationToken)
+    {
+        if (!_emailSender.IsConfigured)
+        {
+            _logger.LogWarning(
+                "SMTP is not configured. Verification code for {MaskedEmail} was not emailed. Set Smtp in appsettings.Development.local.json.",
+                challenge.MaskedEmail);
+            return false;
+        }
+
+        try
+        {
+            var (plain, html) = AuthEmailTemplates.VerificationCode(challenge.Code);
+            await _emailSender.SendAsync(
+                challenge.Email,
+                "HST Receipts verification code",
+                plain,
+                html,
+                cancellationToken);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to email verification code to {MaskedEmail}.", challenge.MaskedEmail);
+            return false;
+        }
+    }
+
+    private object BuildVerificationResponse(LoginVerificationChallenge challenge, bool emailSent)
+    {
+        var includeDevCode = _environment.IsDevelopment() && !emailSent;
+        if (includeDevCode)
+        {
+            return new
+            {
+                requiresVerification = true,
+                verificationToken = challenge.VerificationToken,
+                maskedEmail = challenge.MaskedEmail,
+                emailSent,
+                emailConfigured = _emailSender.IsConfigured,
+                expiresAtUtc = challenge.ExpiresAtUtc,
+                canResendAtUtc = challenge.CanResendAtUtc,
+                // Shown only in Development when SMTP send did not succeed.
+                devCode = challenge.Code,
+                message = emailSent
+                    ? $"A verification code was sent to {challenge.MaskedEmail}."
+                    : _emailSender.IsConfigured
+                        ? $"Could not send email to {challenge.MaskedEmail}. Use the development code below or check SMTP settings."
+                        : $"Email delivery is not configured. Use the development code below, or add Smtp settings in appsettings.Development.local.json."
+            };
+        }
+
+        return new
+        {
+            requiresVerification = true,
+            verificationToken = challenge.VerificationToken,
+            maskedEmail = challenge.MaskedEmail,
+            emailSent,
+            emailConfigured = _emailSender.IsConfigured,
+            expiresAtUtc = challenge.ExpiresAtUtc,
+            canResendAtUtc = challenge.CanResendAtUtc,
+            message = emailSent
+                ? $"A verification code was sent to {challenge.MaskedEmail}."
+                : $"Could not send email to {challenge.MaskedEmail}. Contact an administrator."
+        };
+    }
+
     private async Task ClearReceiptSessionAsync()
     {
         await HttpContext.Session.LoadAsync();
         HttpContext.Session.Remove(BatchSessionKey);
-        HttpContext.Session.Remove(AiLearningSessionKey);
         HttpContext.Session.Clear();
         await HttpContext.Session.CommitAsync();
     }

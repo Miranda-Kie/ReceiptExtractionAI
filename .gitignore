@@ -44,6 +44,7 @@ Desktop.ini
 # Secrets
 appsettings.*.local.json
 !appsettings.*.local.json.example
+admin-credentials.local.json
 *.pfx
 .env
 *.db
@@ -56,4 +57,3 @@ client/dist/
 
 # Local tooling / IDE
 .cursor/
-job-search/

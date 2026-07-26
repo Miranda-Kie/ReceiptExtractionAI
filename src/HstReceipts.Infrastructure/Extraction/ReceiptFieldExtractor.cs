@@ -4985,11 +4985,51 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
     private static IReadOnlyList<ExtractedReceipt> ExtractAiPremiumFoodMartReceipts(string text, string sourceFileName)
     {
-        // Each PDF page is one tall thermal slip (April CARD packs often scan several together).
+        // Multi-slip uploads may be one PDF page per slip OR several thermal slips on one scan page.
+        var slips = SplitAiPremiumFoodMartSlips(text);
+        var results = new List<ExtractedReceipt>();
+        for (var i = 0; i < slips.Count; i++)
+        {
+            var name = slips.Count == 1
+                ? sourceFileName
+                : BuildMultiReceiptName(sourceFileName, i + 1);
+            results.Add(ExtractAiPremiumFoodMartReceipt(slips[i], name));
+        }
+
+        if (results.Count == 0)
+        {
+            results.Add(ExtractAiPremiumFoodMartReceipt(text, sourceFileName));
+        }
+
+        // Aggressive header/date splits create empty duplicates — keep one real row per POS stamp.
+        return CollapseAiPremiumFoodMartRows(results, text);
+    }
+
+    /// <summary>
+    /// Prefer POS-stamp boundaries; if Credit Card / Sub Total markers show more slips than
+    /// stamps (OCR missed a P-number), split on those payment footers instead.
+    /// </summary>
+    private static List<string> SplitAiPremiumFoodMartSlips(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        var markerHint = CountAiPremiumSlipMarkers(text);
+        var fromStamps = SplitAiPremiumByPosStamps(text);
+        var fromCards = SplitAiPremiumByCreditCardFooters(text);
+
+        // Prefer the split that matches the strongest marker count without oversplitting.
+        var best = PickBestAiPremiumSplit([fromStamps, fromCards], markerHint);
+        if (best.Count >= 2)
+        {
+            return best;
+        }
+
         var pages = text
             .Split(['\f'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Where(LooksLikeAiPremiumFoodMartPage)
             .ToList();
 
         if (pages.Count == 0)
@@ -4997,24 +5037,350 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
             pages = [text];
         }
 
-        var results = new List<ExtractedReceipt>();
-        for (var i = 0; i < pages.Count; i++)
+        var slips = new List<string>();
+        foreach (var page in pages)
         {
-            var name = pages.Count == 1
-                ? sourceFileName
-                : BuildMultiReceiptName(sourceFileName, i + 1);
-            results.Add(ExtractAiPremiumFoodMartReceipt(pages[i], name));
+            var pageHint = CountAiPremiumSlipMarkers(page);
+            var pageSplit = PickBestAiPremiumSplit(
+                [SplitAiPremiumByPosStamps(page), SplitAiPremiumByCreditCardFooters(page)],
+                pageHint);
+            if (pageSplit.Count >= 2)
+            {
+                slips.AddRange(pageSplit);
+            }
+            else if (LooksLikeCompleteAiPremiumSlip(page))
+            {
+                slips.Add(page.Trim());
+            }
         }
 
-        return results.Count > 0 ? results : [ExtractAiPremiumFoodMartReceipt(text, sourceFileName)];
+        if (slips.Count >= 2)
+        {
+            return slips;
+        }
+
+        // Last resort: store banner only (not date/time — those repeat inside one slip).
+        var byStore = Regex.Split(
+                text,
+                @"(?=(?:Al[- ]?Premium\s+Foo[dl]\s+Mart|AI[- ]?Premium\s+Food\s+Mart|PREMIUM\s+FOOD\s+MAR))",
+                RegexOptions.IgnoreCase)
+            .Select(p => p.Trim())
+            .Where(LooksLikeCompleteAiPremiumSlip)
+            .ToList();
+
+        if (byStore.Count >= 2)
+        {
+            return byStore;
+        }
+
+        return slips.Count > 0 ? slips : [text];
     }
 
-    private static bool LooksLikeAiPremiumFoodMartPage(string pageText)
+    private static int CountAiPremiumSlipMarkers(string text)
     {
-        return Regex.IsMatch(
-            pageText,
-            @"\b(Sub\s*Total|Credit\s*Card|Total\s+after\s+ta[sx]|Premium\s+Foo[dl]\s+Mart|Eglinton)\b",
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return 0;
+        }
+
+        var stamps = Regex.Matches(text, @"\bP\d{13}\b", RegexOptions.IgnoreCase).Count;
+        var cards = Regex.Matches(text, @"\bCredit\s*Card\b", RegexOptions.IgnoreCase).Count;
+        var subs = Regex.Matches(text, @"\bSub\s*Total\b", RegexOptions.IgnoreCase).Count;
+        var afterTax = Regex.Matches(text, @"\bTotal\s+after\s+ta[sx]\b", RegexOptions.IgnoreCase).Count;
+        return Math.Max(Math.Max(stamps, cards), Math.Max(subs, afterTax));
+    }
+
+    private static List<string> PickBestAiPremiumSplit(IEnumerable<List<string>> candidates, int markerHint)
+    {
+        List<string> best = [];
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Count < 2)
+            {
+                continue;
+            }
+
+            if (best.Count == 0)
+            {
+                best = candidate;
+                continue;
+            }
+
+            // Prefer a count closer to the marker hint (e.g. 3 Credit Cards → 3 slips).
+            var bestDelta = markerHint > 0 ? Math.Abs(best.Count - markerHint) : int.MaxValue;
+            var candidateDelta = markerHint > 0 ? Math.Abs(candidate.Count - markerHint) : int.MaxValue;
+            if (candidateDelta < bestDelta ||
+                (candidateDelta == bestDelta && candidate.Count > best.Count && candidate.Count <= Math.Max(markerHint, best.Count)))
+            {
+                best = candidate;
+            }
+        }
+
+        return best;
+    }
+
+    private static List<string> SplitAiPremiumByPosStamps(string region)
+    {
+        if (string.IsNullOrWhiteSpace(region))
+        {
+            return [];
+        }
+
+        var stampMatches = Regex.Matches(region, @"\bP\d{13}\b", RegexOptions.IgnoreCase);
+        if (stampMatches.Count < 2)
+        {
+            return [];
+        }
+
+        var parts = new List<string>();
+        var start = 0;
+        for (var i = 0; i < stampMatches.Count; i++)
+        {
+            var stampEnd = stampMatches[i].Index + stampMatches[i].Length;
+            // Transaction Record / DATE-TIME usually print *after* the POS REF stamp.
+            var maxEnd = i + 1 < stampMatches.Count ? stampMatches[i + 1].Index : region.Length;
+            var end = ExtendAiPremiumSlipEndThroughTransactionRecord(region, stampEnd, maxEnd);
+            var chunk = region[start..end].Trim();
+            if (LooksLikeCompleteAiPremiumSlip(chunk))
+            {
+                parts.Add(chunk);
+            }
+
+            start = end;
+        }
+
+        // Ignore tiny trailing OCR junk after the last stamp.
+        return parts.Count >= 2 ? parts : [];
+    }
+
+    /// <summary>
+    /// Keep the card-terminal "TRANSACTION RECORD" block that follows the POS REF #.
+    /// Without this, slip cuts end at P… and time falls back to the stamp's HHMMSS.
+    /// </summary>
+    private static int ExtendAiPremiumSlipEndThroughTransactionRecord(string region, int stampEnd, int maxEnd)
+    {
+        if (stampEnd < 0 || stampEnd >= region.Length || maxEnd <= stampEnd)
+        {
+            return Math.Clamp(stampEnd, 0, region.Length);
+        }
+
+        maxEnd = Math.Clamp(maxEnd, stampEnd, region.Length);
+        var window = region[stampEnd..maxEnd];
+
+        var transactionRecord = Regex.Match(
+            window,
+            @"TRANSACTION\s*RECORD[\s\S]{0,280}?\b\d{1,2}:\d{2}:\d{2}\b",
             RegexOptions.IgnoreCase);
+        if (transactionRecord.Success)
+        {
+            return stampEnd + transactionRecord.Index + transactionRecord.Length;
+        }
+
+        var dateTimeLabel = Regex.Match(
+            window,
+            @"DATE\s*/?\s*TIME[^\n]{0,48}\b\d{1,2}:\d{2}(?::\d{2})?\b",
+            RegexOptions.IgnoreCase);
+        if (dateTimeLabel.Success)
+        {
+            return stampEnd + dateTimeLabel.Index + dateTimeLabel.Length;
+        }
+
+        return stampEnd;
+    }
+
+    private static List<string> SplitAiPremiumByCreditCardFooters(string region)
+    {
+        if (string.IsNullOrWhiteSpace(region))
+        {
+            return [];
+        }
+
+        var cardMatches = Regex.Matches(region, @"\bCredit\s*Card\b", RegexOptions.IgnoreCase);
+        if (cardMatches.Count < 2)
+        {
+            return [];
+        }
+
+        var parts = new List<string>();
+        var start = 0;
+        for (var i = 0; i < cardMatches.Count; i++)
+        {
+            var card = cardMatches[i];
+            var end = Math.Min(region.Length, card.Index + card.Length + 200);
+            var after = region[card.Index..];
+            var nearbyStamp = Regex.Match(after, @"\bP\d{13}\b", RegexOptions.IgnoreCase);
+            if (nearbyStamp.Success && nearbyStamp.Index < 260)
+            {
+                var stampEnd = card.Index + nearbyStamp.Index + nearbyStamp.Length;
+                var maxEnd = i + 1 < cardMatches.Count ? cardMatches[i + 1].Index : region.Length;
+                end = ExtendAiPremiumSlipEndThroughTransactionRecord(region, stampEnd, maxEnd);
+            }
+            else if (i + 1 < cardMatches.Count)
+            {
+                // Stop before the next Credit Card block when no POS stamp was OCR'd.
+                end = cardMatches[i + 1].Index;
+            }
+
+            if (end <= start)
+            {
+                continue;
+            }
+
+            var chunk = region[start..end].Trim();
+            if (LooksLikeCompleteAiPremiumSlip(chunk))
+            {
+                parts.Add(chunk);
+            }
+
+            start = end;
+        }
+
+        var tail = region[start..].Trim();
+        if (LooksLikeCompleteAiPremiumSlip(tail))
+        {
+            parts.Add(tail);
+        }
+
+        return parts.Count >= 2 ? parts : [];
+    }
+
+    private static bool LooksLikeAiPremiumFoodMartPage(string pageText) =>
+        LooksLikeCompleteAiPremiumSlip(pageText);
+
+    /// <summary>Require money or a POS stamp so header-only fragments are dropped.</summary>
+    private static bool LooksLikeCompleteAiPremiumSlip(string pageText)
+    {
+        if (string.IsNullOrWhiteSpace(pageText) || pageText.Length < 60)
+        {
+            return false;
+        }
+
+        var hasStamp = Regex.IsMatch(pageText, @"\bP\d{13}\b", RegexOptions.IgnoreCase);
+        var hasMoneyBlock = Regex.IsMatch(
+            pageText,
+            @"\b(Sub\s*Total|Credit\s*Card|Total\s+after\s+ta[sx])\b",
+            RegexOptions.IgnoreCase);
+        var hasAmount = Regex.IsMatch(pageText, @"\b\d{1,3}\.\d{2}\b");
+        return hasStamp || (hasMoneyBlock && hasAmount);
+    }
+
+    /// <summary>
+    /// Drop empty fragments and keep the best-filled row per invoice / POS stamp.
+    /// </summary>
+    private static List<ExtractedReceipt> CollapseAiPremiumFoodMartRows(
+        List<ExtractedReceipt> rows,
+        string fullText)
+    {
+        var quality = rows
+            .Where(r =>
+                r.TotalAmount is >= 5m ||
+                IsAiFoodMartPosInvoice(r.InvoiceNumber) ||
+                (r.Subtotal is >= 5m && r.ReceiptDate is not null))
+            .ToList();
+
+        if (quality.Count == 0)
+        {
+            return rows.Take(1).ToList();
+        }
+
+        static int Score(ExtractedReceipt r)
+        {
+            var score = 0;
+            if (r.TotalAmount is >= 5m) score += 5;
+            if (r.Subtotal is >= 5m) score += 3;
+            if (r.GstHst is not null) score += 2;
+            if (r.ReceiptDate is not null) score += 2;
+            if (IsAiFoodMartPosInvoice(r.InvoiceNumber)) score += 4;
+            else if (!string.IsNullOrWhiteSpace(r.InvoiceNumber)) score += 1;
+            if (!string.IsNullOrWhiteSpace(r.TransactionTime)) score += 1;
+            if (r.Success) score += 1;
+            return score;
+        }
+
+        // One row per invoice number.
+        var byInvoice = quality
+            .Where(r => !string.IsNullOrWhiteSpace(r.InvoiceNumber))
+            .GroupBy(r => r.InvoiceNumber!.Trim().ToUpperInvariant())
+            .Select(g => g.OrderByDescending(Score).First())
+            .ToList();
+
+        var noInvoice = quality
+            .Where(r => string.IsNullOrWhiteSpace(r.InvoiceNumber))
+            .OrderByDescending(Score)
+            .ToList();
+
+        var collapsed = byInvoice.Concat(noInvoice).OrderByDescending(Score).ToList();
+
+        // Prefer exactly the distinct POS stamps found in the OCR text, but do not drop a
+        // third quality slip when OCR missed its P-number (Credit Card / Sub Total still present).
+        var stamps = ExtractAllAiFoodMartPosStamps(fullText);
+        var markerHint = Math.Max(stamps.Count, CountAiPremiumSlipMarkers(fullText));
+        if (stamps.Count >= 2 || markerHint >= 2)
+        {
+            var matched = new List<ExtractedReceipt>();
+            foreach (var stamp in stamps)
+            {
+                var hit = collapsed.FirstOrDefault(r =>
+                    string.Equals(r.InvoiceNumber, stamp, StringComparison.OrdinalIgnoreCase));
+                if (hit is not null)
+                {
+                    matched.Add(hit);
+                }
+            }
+
+            var used = new HashSet<string>(
+                matched
+                    .Select(r => r.InvoiceNumber?.Trim().ToUpperInvariant())
+                    .Where(v => !string.IsNullOrWhiteSpace(v))!,
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var extra in collapsed.OrderByDescending(Score))
+            {
+                if (matched.Count >= Math.Max(markerHint, stamps.Count))
+                {
+                    break;
+                }
+
+                var inv = extra.InvoiceNumber?.Trim().ToUpperInvariant();
+                if (inv is not null && used.Contains(inv))
+                {
+                    continue;
+                }
+
+                // Distinct by date+total so a stamp-less third slip can remain.
+                var dupAmountDate = matched.Any(m =>
+                    m.ReceiptDate == extra.ReceiptDate &&
+                    m.TotalAmount is not null &&
+                    extra.TotalAmount is not null &&
+                    Math.Abs(m.TotalAmount.Value - extra.TotalAmount.Value) < 0.02m);
+                if (dupAmountDate)
+                {
+                    continue;
+                }
+
+                if (extra.TotalAmount is >= 5m || IsAiFoodMartPosInvoice(extra.InvoiceNumber))
+                {
+                    matched.Add(extra);
+                    if (inv is not null)
+                    {
+                        used.Add(inv);
+                    }
+                }
+            }
+
+            if (matched.Count >= 2)
+            {
+                return matched
+                    .OrderBy(r => r.ReceiptDate)
+                    .ThenBy(r => r.TransactionTime)
+                    .ToList();
+            }
+        }
+
+        return collapsed
+            .OrderBy(r => r.ReceiptDate)
+            .ThenBy(r => r.TransactionTime)
+            .ToList();
     }
 
     private static ExtractedReceipt ExtractAiPremiumFoodMartReceipt(string text, string sourceFileName)
@@ -5041,7 +5407,8 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
         {
             ReceiptName = sourceFileName,
             Success = true,
-            StoreName = "AI Premium Food Mart"
+            StoreName = "AI Premium Food Mart",
+            SourceTextPreview = text.Length > 4000 ? text[..4000] : text
         };
 
         // Prefer payment / after-tax total candidates; pick the best grocery-sized amount.
@@ -5305,12 +5672,14 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
         result.InvoiceNumber ??= ExtractAiFoodMartReceiptNumber(text, lines);
         EnrichCommonMetaFields(result, text);
         ApplyAiFoodMartInvoiceNumber(result, text);
+        ApplyAiFoodMartTransactionTime(result);
         ReconcileAiFoodMartAmounts(result);
         return result;
     }
 
     /// <summary>
     /// Re-apply AI Premium amount/invoice fixes after learned profiles or LLM fill.
+    /// Uses per-row SourceTextPreview (page text) — never the whole multi-receipt PDF.
     /// </summary>
     public static void FinalizeAiPremiumFoodMartRow(ExtractedReceipt result)
     {
@@ -5330,6 +5699,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
         }
 
         ApplyAiFoodMartInvoiceNumber(result, result.SourceTextPreview ?? string.Empty);
+        ApplyAiFoodMartTransactionTime(result);
 
         // Clear accidental stamp of a regex hint (e.g. "\b(P\d{13})\b") into InvoiceNumber.
         if (!string.IsNullOrWhiteSpace(result.InvoiceNumber) &&
@@ -5339,9 +5709,254 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
         {
             result.InvoiceNumber = null;
             ApplyAiFoodMartInvoiceNumber(result, result.SourceTextPreview ?? string.Empty);
+            ApplyAiFoodMartTransactionTime(result);
         }
 
         ReconcileAiFoodMartAmounts(result);
+    }
+
+    /// <summary>
+    /// Prefer TRANSACTION RECORD clock time, then printed MM/DD HH:MM, then DI time, else POS stamp.
+    /// </summary>
+    private static void ApplyAiFoodMartTransactionTime(ExtractedReceipt result)
+    {
+        var text = result.SourceTextPreview;
+        var fromRecord = TryExtractAiFoodMartTransactionRecordTime(text);
+        if (fromRecord is not null)
+        {
+            result.TransactionTime = fromRecord;
+            TryFillAiFoodMartDateTimeFromInvoice(result);
+            return;
+        }
+
+        var printed = TryExtractAiFoodMartPrintedTime(text);
+        if (printed is not null)
+        {
+            result.TransactionTime = printed;
+            TryFillAiFoodMartDateTimeFromInvoice(result);
+            return;
+        }
+
+        // Keep Document Intelligence TransactionTime when OCR text lost the card block.
+        if (TryNormalizeClockTime(result.TransactionTime, out var normalized))
+        {
+            result.TransactionTime = normalized;
+            TryFillAiFoodMartDateTimeFromInvoice(result);
+            return;
+        }
+
+        // Drop amount-misread times (e.g. 11:29 near Sub Total) before POS fill.
+        result.TransactionTime = null;
+        TryFillAiFoodMartDateTimeFromInvoice(result);
+    }
+
+    /// <summary>
+    /// Card-terminal block prints the authoritative time (often a few seconds off the POS REF stamp).
+    /// </summary>
+    private static string? TryExtractAiFoodMartTransactionRecordTime(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        // Prefer the last TRANSACTION RECORD on the slip (customer copy / final auth).
+        var matches = Regex.Matches(
+            text,
+            @"TRANSACTION\s*RECORD[\s\S]{0,280}?\b(\d{1,2}):(\d{2}):(\d{2})\b",
+            RegexOptions.IgnoreCase);
+        for (var i = matches.Count - 1; i >= 0; i--)
+        {
+            var match = matches[i];
+            if (int.TryParse(match.Groups[1].Value, out var hour) &&
+                int.TryParse(match.Groups[2].Value, out var minute) &&
+                int.TryParse(match.Groups[3].Value, out var second) &&
+                hour is >= 0 and <= 23 &&
+                minute is >= 0 and <= 59 &&
+                second is >= 0 and <= 59)
+            {
+                return FormatTimeOnly(hour, minute, second);
+            }
+        }
+
+        var dateTimeLabel = Regex.Match(
+            text,
+            @"DATE\s*/?\s*TIME[^\n]{0,48}\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b",
+            RegexOptions.IgnoreCase);
+        if (dateTimeLabel.Success &&
+            int.TryParse(dateTimeLabel.Groups[1].Value, out var labelHour) &&
+            int.TryParse(dateTimeLabel.Groups[2].Value, out var labelMinute))
+        {
+            var labelSecond = dateTimeLabel.Groups[3].Success &&
+                              int.TryParse(dateTimeLabel.Groups[3].Value, out var ls)
+                ? ls
+                : 0;
+            if (labelHour is >= 0 and <= 23 &&
+                labelMinute is >= 0 and <= 59 &&
+                labelSecond is >= 0 and <= 59)
+            {
+                return FormatTimeOnly(labelHour, labelMinute, labelSecond);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TryNormalizeClockTime(string? value, out string normalized)
+    {
+        normalized = string.Empty;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var match = Regex.Match(
+            value.Trim(),
+            @"\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?\b",
+            RegexOptions.IgnoreCase);
+        if (!match.Success ||
+            !int.TryParse(match.Groups[1].Value, out var hour) ||
+            !int.TryParse(match.Groups[2].Value, out var minute))
+        {
+            return false;
+        }
+
+        var second = match.Groups[3].Success && int.TryParse(match.Groups[3].Value, out var s)
+            ? s
+            : 0;
+        if (match.Groups[4].Success && !string.IsNullOrWhiteSpace(match.Groups[4].Value))
+        {
+            hour = To24Hour(hour, match.Groups[4].Value);
+        }
+
+        if (hour is < 0 or > 23 || minute is < 0 or > 59 || second is < 0 or > 59)
+        {
+            return false;
+        }
+
+        normalized = FormatTimeOnly(hour, minute, second);
+        return true;
+    }
+
+    private static string? TryExtractAiFoodMartPrintedTime(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var nearReceipt = Regex.Match(
+            text,
+            @"\b(?:20\d{2}[/-])?(0[1-9]|1[0-2])[/-](0[1-9]|[12]\d|3[01])\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\b[^\n]{0,30}Receip",
+            RegexOptions.IgnoreCase);
+        if (nearReceipt.Success &&
+            int.TryParse(nearReceipt.Groups[3].Value, out var hour) &&
+            int.TryParse(nearReceipt.Groups[4].Value, out var minute))
+        {
+            var second = nearReceipt.Groups[5].Success && int.TryParse(nearReceipt.Groups[5].Value, out var s)
+                ? s
+                : 0;
+            if (hour is >= 0 and <= 23 && minute is >= 0 and <= 59 && second is >= 0 and <= 59)
+            {
+                return FormatTimeOnly(hour, minute, second);
+            }
+        }
+
+        var mdTime = Regex.Match(
+            text,
+            @"\b(?:20\d{2}[/-])?(0[1-9]|1[0-2])[/-](0[1-9]|[12]\d|3[01])\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\b");
+        if (mdTime.Success &&
+            int.TryParse(mdTime.Groups[3].Value, out hour) &&
+            int.TryParse(mdTime.Groups[4].Value, out minute))
+        {
+            var second = mdTime.Groups[5].Success && int.TryParse(mdTime.Groups[5].Value, out var s2)
+                ? s2
+                : 0;
+            if (hour is >= 0 and <= 23 && minute is >= 0 and <= 59 && second is >= 0 and <= 59)
+            {
+                return FormatTimeOnly(hour, minute, second);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// POS stamps encode date/time as P + optional register digit + YYMMDDHHMMSS.
+    /// </summary>
+    private static void TryFillAiFoodMartDateTimeFromInvoice(ExtractedReceipt result)
+    {
+        if (!IsAiFoodMartPosInvoice(result.InvoiceNumber))
+        {
+            return;
+        }
+
+        var digits = result.InvoiceNumber!.Trim()[1..];
+        // P8260430114116 → skip leading register "8" → 260430114116
+        if (digits.Length == 13 && digits[0] is >= '1' and <= '9' &&
+            digits[1] is '0' or '1' or '2')
+        {
+            // Prefer YYMMDD… when digits[1..] looks like 20xx/21xx/22xx years via first two of remaining.
+            var withoutRegister = digits[1..];
+            if (withoutRegister.Length == 12 &&
+                TryParseAiFoodMartPosDateTime(withoutRegister, out var d1, out var t1))
+            {
+                result.ReceiptDate ??= d1;
+                if (string.IsNullOrWhiteSpace(result.TransactionTime))
+                {
+                    result.TransactionTime = t1;
+                }
+
+                return;
+            }
+        }
+
+        if (digits.Length >= 12 && TryParseAiFoodMartPosDateTime(digits[..12], out var d2, out var t2))
+        {
+            result.ReceiptDate ??= d2;
+            if (string.IsNullOrWhiteSpace(result.TransactionTime))
+            {
+                result.TransactionTime = t2;
+            }
+        }
+    }
+
+    private static bool TryParseAiFoodMartPosDateTime(string yymmddhhmmss, out DateOnly date, out string time)
+    {
+        date = default;
+        time = string.Empty;
+        if (yymmddhhmmss.Length < 12)
+        {
+            return false;
+        }
+
+        if (!int.TryParse(yymmddhhmmss[..2], out var yy) ||
+            !int.TryParse(yymmddhhmmss.Substring(2, 2), out var mm) ||
+            !int.TryParse(yymmddhhmmss.Substring(4, 2), out var dd) ||
+            !int.TryParse(yymmddhhmmss.Substring(6, 2), out var hh) ||
+            !int.TryParse(yymmddhhmmss.Substring(8, 2), out var mi) ||
+            !int.TryParse(yymmddhhmmss.Substring(10, 2), out var ss))
+        {
+            return false;
+        }
+
+        var year = 2000 + yy;
+        if (year is < 2018 or > 2035 || mm is < 1 or > 12 || dd is < 1 or > 31 ||
+            hh > 23 || mi > 59 || ss > 59)
+        {
+            return false;
+        }
+
+        try
+        {
+            date = new DateOnly(year, mm, dd);
+            time = $"{hh:D2}:{mi:D2}:{ss:D2}";
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -5400,10 +6015,16 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
     /// </summary>
     private static string? ExtractAiFoodMartReceiptNumber(string text, IReadOnlyList<string> lines)
     {
-        var fromText = TryExtractAiFoodMartPosStamp(text);
-        if (fromText is not null)
+        var stamps = ExtractAllAiFoodMartPosStamps(text);
+        if (stamps.Count == 1)
         {
-            return fromText;
+            return stamps[0];
+        }
+
+        if (stamps.Count > 1)
+        {
+            // Ambiguous multi-receipt text — caller must disambiguate with date/time.
+            return null;
         }
 
         foreach (var line in lines)
@@ -5420,6 +6041,85 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
     private static void ApplyAiFoodMartInvoiceNumber(ExtractedReceipt result, string text)
     {
+        var stamps = ExtractAllAiFoodMartPosStamps(text);
+        var built = BuildAiFoodMartPosFromDateTime(result);
+
+        // Exact match to date+time-built POS (unique per receipt).
+        if (built is not null)
+        {
+            var exact = stamps.FirstOrDefault(s =>
+                string.Equals(s, built, StringComparison.OrdinalIgnoreCase));
+            if (exact is not null)
+            {
+                result.InvoiceNumber = exact;
+                return;
+            }
+        }
+
+        // One stamp in this page's text — safe to use.
+        if (stamps.Count == 1)
+        {
+            result.InvoiceNumber = stamps[0];
+            return;
+        }
+
+        // Multiple stamps (shared full-PDF preview): pick by date, then closest to built time.
+        if (stamps.Count > 1 && result.ReceiptDate is not null)
+        {
+            var datePrefix = $"P{result.ReceiptDate.Value.Year % 100:D2}{result.ReceiptDate.Value.Month:D2}{result.ReceiptDate.Value.Day:D2}";
+            var onDate = stamps
+                .Where(s => s.StartsWith(datePrefix, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (onDate.Count == 1)
+            {
+                result.InvoiceNumber = onDate[0];
+                return;
+            }
+
+            if (built is not null && onDate.Count > 1)
+            {
+                result.InvoiceNumber = onDate
+                    .OrderByDescending(s => CommonPrefixLength(s, built))
+                    .ThenBy(s => s, StringComparer.OrdinalIgnoreCase)
+                    .First();
+                return;
+            }
+
+            if (built is not null)
+            {
+                result.InvoiceNumber = stamps
+                    .OrderByDescending(s => CommonPrefixLength(s, built))
+                    .First();
+                return;
+            }
+        }
+
+        // Prefer synthesizing from this row's date/time over copying another receipt's stamp.
+        if (built is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(result.InvoiceNumber) &&
+                !string.Equals(result.InvoiceNumber, built, StringComparison.OrdinalIgnoreCase) &&
+                stamps.Count != 1)
+            {
+                result.Warnings.Add(
+                    $"Replaced invoice '{result.InvoiceNumber}' with POS stamp from date/time '{built}'.");
+            }
+
+            result.InvoiceNumber = built;
+            return;
+        }
+
+        if (IsAiFoodMartPosInvoice(result.InvoiceNumber))
+        {
+            // Keep page-extracted value when we cannot safely pick among many stamps.
+            if (stamps.Count <= 1 ||
+                stamps.Any(s => string.Equals(s, result.InvoiceNumber, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+        }
+
         var lines = string.IsNullOrWhiteSpace(text)
             ? (IReadOnlyList<string>)Array.Empty<string>()
             : SplitLines(text);
@@ -5430,26 +6130,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
             return;
         }
 
-        if (IsAiFoodMartPosInvoice(result.InvoiceNumber))
-        {
-            return;
-        }
-
-        var built = BuildAiFoodMartPosFromDateTime(result);
-        if (built is not null)
-        {
-            if (!string.IsNullOrWhiteSpace(result.InvoiceNumber) &&
-                !string.Equals(result.InvoiceNumber, built, StringComparison.OrdinalIgnoreCase))
-            {
-                result.Warnings.Add(
-                    $"Replaced weak invoice '{result.InvoiceNumber}' with POS stamp from date/time '{built}'.");
-            }
-
-            result.InvoiceNumber = built;
-            return;
-        }
-
-        if (!string.IsNullOrWhiteSpace(result.InvoiceNumber))
+        if (!string.IsNullOrWhiteSpace(result.InvoiceNumber) && !IsAiFoodMartPosInvoice(result.InvoiceNumber))
         {
             result.Warnings.Add(
                 $"Ignored weak invoice '{result.InvoiceNumber}' (AI Premium expects P + 13 digits).");
@@ -5457,45 +6138,73 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
         }
     }
 
+    private static int CommonPrefixLength(string a, string b)
+    {
+        var n = Math.Min(a.Length, b.Length);
+        var i = 0;
+        for (; i < n; i++)
+        {
+            if (char.ToUpperInvariant(a[i]) != char.ToUpperInvariant(b[i]))
+            {
+                break;
+            }
+        }
+
+        return i;
+    }
+
+    private static IReadOnlyList<string> ExtractAllAiFoodMartPosStamps(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        var found = new List<string>();
+        foreach (Match m in Regex.Matches(text, @"\b(P\d{13})\b", RegexOptions.IgnoreCase))
+        {
+            var token = CleanInvoiceToken(m.Groups[1].Value)?.ToUpperInvariant();
+            if (token is not null && !found.Contains(token, StringComparer.OrdinalIgnoreCase))
+            {
+                found.Add(token);
+            }
+        }
+
+        foreach (Match m in Regex.Matches(text, @"\bP[\s\-_]*((?:\d[\s\-_]*){13})\b", RegexOptions.IgnoreCase))
+        {
+            var digits = Regex.Replace(m.Groups[1].Value, @"\D", string.Empty);
+            if (digits.Length != 13)
+            {
+                continue;
+            }
+
+            var token = "P" + digits;
+            if (!found.Contains(token, StringComparer.OrdinalIgnoreCase))
+            {
+                found.Add(token);
+            }
+        }
+
+        foreach (Match m in Regex.Matches(text, @"\b[PFB][A-Z0-9]{12,18}\b", RegexOptions.IgnoreCase))
+        {
+            var normalized = NormalizeAiFoodMartPosCandidate(m.Value);
+            if (normalized is not null && !found.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+            {
+                found.Add(normalized);
+            }
+        }
+
+        return found;
+    }
+
     private static bool IsAiFoodMartPosInvoice(string? invoice)
         => !string.IsNullOrWhiteSpace(invoice) &&
            Regex.IsMatch(invoice.Trim(), @"^P\d{13}$", RegexOptions.IgnoreCase);
 
-    private static string? TryExtractAiFoodMartPosStamp(string text)
+        private static string? TryExtractAiFoodMartPosStamp(string text)
     {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return null;
-        }
-
-        var clean = Regex.Match(text, @"\b(P\d{13})\b", RegexOptions.IgnoreCase);
-        if (clean.Success)
-        {
-            return CleanInvoiceToken(clean.Groups[1].Value)?.ToUpperInvariant();
-        }
-
-        // OCR inserts spaces/dashes: P8 260 319 124 148
-        var spaced = Regex.Match(text, @"\bP[\s\-_]*((?:\d[\s\-_]*){13})\b", RegexOptions.IgnoreCase);
-        if (spaced.Success)
-        {
-            var digits = Regex.Replace(spaced.Groups[1].Value, @"\D", string.Empty);
-            if (digits.Length == 13)
-            {
-                return "P" + digits;
-            }
-        }
-
-        // OCR letter confusions in a compact stamp (e.g. P8B60319124148).
-        foreach (Match m in Regex.Matches(text, @"\b[PFB][A-Z0-9]{12,18}\b", RegexOptions.IgnoreCase))
-        {
-            var normalized = NormalizeAiFoodMartPosCandidate(m.Value);
-            if (normalized is not null)
-            {
-                return normalized;
-            }
-        }
-
-        return null;
+        var all = ExtractAllAiFoodMartPosStamps(text);
+        return all.Count == 1 ? all[0] : null;
     }
 
     private static string? NormalizeAiFoodMartPosCandidate(string raw)

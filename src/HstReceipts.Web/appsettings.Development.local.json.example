@@ -1,34 +1,68 @@
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=YOUR_SERVER.database.windows.net,1433;Database=HstReceipts;User ID=YOUR_SQL_USER;Password=YOUR_SQL_PASSWORD;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;MultipleActiveResultSets=true"
-  },
-  "Database": {
-    "Provider": "SqlServer"
-  },
-  "SeedUsers": {
-    "Users": [
-      {
-        "Username": "admin",
-        "Password": "CHANGE_ME_ADMIN_PASSWORD",
-        "Role": "Admin"
-      },
-      {
-        "Username": "officer",
-        "Password": "CHANGE_ME_OFFICER_PASSWORD",
-        "Role": "Officer"
-      }
-    ]
-  },
-  "AiLearning": {
-    "Enabled": true,
-    "ApiKey": "YOUR_OPENAI_API_KEY",
-    "FillMissingFields": true,
-    "MaxFillPerBatch": 20,
-    "InputUsdPer1MTokens": 0.15,
-    "OutputUsdPer1MTokens": 0.60,
-    "MaxCallsPerUserPerDay": 50,
-    "MaxTokensPerUserPerDay": 200000,
-    "MaxEstimatedCostUsdPerUserPerDay": 1.00
-  }
-}
-
+﻿{
+    "ConnectionStrings":  {
+                              "DefaultConnection":  "Server=YOUR_SERVER.database.windows.net,1433;Database=HstReceipts;User ID=YOUR_SQL_USER;Password=YOUR_SQL_PASSWORD;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;MultipleActiveResultSets=true"
+                          },
+    "Database":  {
+                     "Provider":  "SqlServer"
+                 },
+    "SeedUsers":  {
+                      "Users":  [
+                                    {
+                                        "Username":  "owner",
+                                        "Password":  "CHANGE_ME_OWNER_PASSWORD",
+                                        "Role":  "Owner",
+                                        "Email":  "owner@example.com"
+                                    },
+                                    {
+                                        "Username":  "admin",
+                                        "Password":  "CHANGE_ME_ADMIN_PASSWORD",
+                                        "Role":  "Admin",
+                                        "Email":  "admin@example.com"
+                                    },
+                                    {
+                                        "Username":  "officer",
+                                        "Password":  "CHANGE_ME_OFFICER_PASSWORD",
+                                        "Role":  "Officer",
+                                        "Email":  "officer@example.com"
+                                    }
+                                ]
+                  },
+    "DocumentIntelligence":  {
+                                 "Enabled":  true,
+                                 "Endpoint":  "https://YOUR_RESOURCE.cognitiveservices.azure.com/",
+                                 "ApiKey":  "YOUR_DOCUMENT_INTELLIGENCE_KEY",
+                                 "ModelId":  "prebuilt-receipt",
+                                 "Locale":  "en-CA",
+                                 "FillGapsWithRules":  true
+                             },
+    "BlobStorage":  {
+                        "Enabled":  true,
+                        "ConnectionString":  "YOUR_STORAGE_CONNECTION_STRING",
+                        "InboxContainer":  "receipts-inbox",
+                        "ResultsContainer":  "receipts-results"
+                    },
+    "Processing":  {
+                       "Mode":  "Pipeline"
+                   },
+    "AiLearning":  {
+                       "Enabled":  true,
+                       "ApiKey":  "YOUR_OPENAI_API_KEY",
+                       "FillMissingFields":  true,
+                       "MaxFillPerBatch":  20,
+                       "InputUsdPer1MTokens":  0.15,
+                       "OutputUsdPer1MTokens":  0.60,
+                       "MaxCallsPerUserPerDay":  50,
+                       "MaxTokensPerUserPerDay":  200000,
+                       "MaxEstimatedCostUsdPerUserPerDay":  1.00
+                   },
+    "Smtp":  {
+                 "Enabled":  true,
+                 "Host":  "smtp.gmail.com",
+                 "Port":  587,
+                 "UseSsl":  true,
+                 "Username":  "YOUR_GMAIL_ADDRESS",
+                 "Password":  "YOUR_GMAIL_APP_PASSWORD",
+                 "FromAddress":  "YOUR_GMAIL_ADDRESS",
+                 "FromDisplayName":  "HST Receipts"
+             }
+}

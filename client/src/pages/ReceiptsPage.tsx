@@ -1,27 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth'
-import { ThemeToggle, applyStoredTheme } from '../theme'
+import { readJson } from '../http'
+import { applyStoredTheme } from '../theme'
 import {
-  AiLearningState,
   EXPORT_FIELDS,
   ReceiptRow,
   downloadBlob,
   moneyOk,
+  normalizeTimeValue,
   toEditPayload,
+  toTimeInputValue,
 } from '../types'
 
-const emptyAi: AiLearningState = { showToggle: false, configured: false, enabled: false }
-
 export default function ReceiptsPage() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const [learningToast, setLearningToast] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(null)
   const [receipts, setReceipts] = useState<ReceiptRow[]>([])
-  const [ai, setAi] = useState<AiLearningState>(emptyAi)
   const [exportFields, setExportFields] = useState<string[]>([...EXPORT_FIELDS])
   const [conflicts, setConflicts] = useState<any[] | null>(null)
   const [showSaveRemind, setShowSaveRemind] = useState(false)
@@ -45,17 +43,15 @@ export default function ReceiptsPage() {
     setReceipts([])
     setFiles([])
     setMessage(null)
-    setLearningToast(null)
     setError(null)
     setConflicts(null)
     setShowSaveRemind(false)
     setDeleteConfirm(null)
     setExportFields([...EXPORT_FIELDS])
-    setAi(emptyAi)
 
     let cancelled = false
     fetch('/api/receipts/session', { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => (r.ok ? readJson<{ batchId?: string; receipts?: ReceiptRow[] }>(r) : null))
       .then((data) => {
         if (cancelled || !data) return
         // After login/logout the server clears the batch; only hydrate when present.
@@ -63,7 +59,6 @@ export default function ReceiptsPage() {
           setBatchId(data.batchId)
           setReceipts(data.receipts.map((r: ReceiptRow) => ({ ...r, validated: false })))
         }
-        if (data.aiLearning) setAi(data.aiLearning)
       })
       .catch(() => undefined)
 
@@ -71,18 +66,6 @@ export default function ReceiptsPage() {
       cancelled = true
     }
   }, [user?.username, user?.isDemo, user?.authenticated])
-
-  async function handleLogout() {
-    setBatchId(null)
-    setReceipts([])
-    setFiles([])
-    setMessage(null)
-    setError(null)
-    setConflicts(null)
-    setShowSaveRemind(false)
-    setDeleteConfirm(null)
-    await logout()
-  }
 
   function onFilesChosen(list: FileList | null) {
     if (!list) return
@@ -94,7 +77,6 @@ export default function ReceiptsPage() {
     setBusy(true)
     setError(null)
     setMessage(null)
-    setLearningToast(null)
     const form = new FormData()
     for (const f of files) form.append('files', f)
     try {
@@ -103,30 +85,73 @@ export default function ReceiptsPage() {
         credentials: 'include',
         body: form,
       })
-      const data = await res.json()
+      const data = await readJson<{
+        error?: string
+        batchId?: string
+        status?: string
+        message?: string
+        receipts?: ReceiptRow[]
+      }>(res)
       if (!res.ok) {
         setError(data.error || 'Processing failed.')
         return
       }
-      setBatchId(data.batchId)
+      setBatchId(data.batchId ?? null)
+      if (data.status === 'processing' && data.batchId) {
+        setMessage(data.message || 'Processing in Azure…')
+        setReceipts([])
+        await pollBatchUntilDone(data.batchId)
+        return
+      }
       setReceipts((data.receipts || []).map((r: ReceiptRow) => ({ ...r, validated: false })))
       setMessage(data.message || null)
-      if (data.aiLearning) setAi(data.aiLearning)
-    } catch (e) {
-      setError(String(e))
+    } catch {
+      setError('Processing failed. Check your connection and try again.')
     } finally {
       setBusy(false)
     }
   }
 
-  async function toggleAi(enabled: boolean) {
-    const res = await fetch('/api/receipts/ai-learning', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled }),
-    })
-    if (res.ok) setAi((a) => ({ ...a, enabled }))
+  async function pollBatchUntilDone(id: string) {
+    const started = Date.now()
+    while (Date.now() - started < 10 * 60 * 1000) {
+      await new Promise((r) => setTimeout(r, 2000))
+      const res = await fetch(`/api/receipts/batches/${id}`, { credentials: 'include' })
+      const data = await readJson<{
+        error?: string
+        message?: string
+        status?: string
+        receipts?: ReceiptRow[]
+        completedFiles?: number
+        totalFiles?: number
+      }>(res)
+      if (!res.ok) {
+        setError(data.error || 'Failed to poll batch status.')
+        return
+      }
+      const elapsedSec = Math.round((Date.now() - started) / 1000)
+      const stillIdle =
+        (data.completedFiles ?? 0) === 0 &&
+        (data.totalFiles ?? 0) > 0 &&
+        elapsedSec >= 30
+      setMessage(
+        stillIdle
+          ? `${data.message || 'Processing…'} Waiting for the Azure Function worker — keep \`func start\` running in src/HstReceipts.Functions.`
+          : data.message || null,
+      )
+      if (data.status === 'completed') {
+        setReceipts((data.receipts || []).map((r: ReceiptRow) => ({ ...r, validated: false })))
+        return
+      }
+      if (data.status === 'failed') {
+        setError(data.error || data.message || 'Pipeline processing failed.')
+        setReceipts((data.receipts || []).map((r: ReceiptRow) => ({ ...r, validated: false })))
+        return
+      }
+    }
+    setError(
+      'Timed out waiting for Azure Function / Document Intelligence. Start the Function with: cd src/HstReceipts.Functions && func start',
+    )
   }
 
   function updateRow(index: number, patch: Partial<ReceiptRow>) {
@@ -237,7 +262,7 @@ export default function ReceiptsPage() {
         body: JSON.stringify(payload),
       })
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
+        const body = await readJson<{ error?: string }>(res)
         setError(body.error || 'Export failed.')
         return
       }
@@ -275,13 +300,13 @@ export default function ReceiptsPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
-        const body = await compare.json()
+        const body = await readJson<{ error?: string; conflicts?: unknown[] }>(compare)
         if (!compare.ok) {
           setError(body.error || 'Compare failed.')
           return
         }
         if ((body.conflicts || []).length > 0) {
-          setConflicts(body.conflicts)
+          setConflicts(body.conflicts as any[])
           return
         }
       }
@@ -292,16 +317,8 @@ export default function ReceiptsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      const learning = res.headers.get('X-Ai-Learning-Result')
-      if (learning) {
-        try {
-          setLearningToast(decodeURIComponent(learning))
-        } catch {
-          setLearningToast(learning)
-        }
-      }
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
+        const body = await readJson<{ error?: string }>(res)
         setError(body.error || 'Export failed.')
         return
       }
@@ -332,60 +349,12 @@ export default function ReceiptsPage() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          HST <span>Receipts</span>
-        </div>
-        <div className="topbar-right">
-          <span className="user-chip">
-            {user?.role &&
-            user.role.toLowerCase() === (user.username ?? '').toLowerCase() ? (
-              <em>{user.role}</em>
-            ) : (
-              <>
-                {user?.username}
-                {user?.role && <em>{user.role}</em>}
-              </>
-            )}
-          </span>
-          <ThemeToggle />
-          <button type="button" className="ghost" onClick={() => handleLogout()}>
-            Sign out
-          </button>
-        </div>
-      </header>
-
+    <>
       <main className="page">
         <header className="page-head">
           <h1>Receipt Upload</h1>
           <p>Upload receipt images and PDFs to extract store, invoice, tax, and totals.</p>
         </header>
-
-        {ai.showToggle && (
-          <div className="ai-bar">
-            <label className="ai-toggle">
-              <input
-                type="checkbox"
-                checked={ai.enabled}
-                disabled={!ai.configured}
-                onChange={(e) => toggleAi(e.target.checked)}
-              />
-              <span>
-                <strong>AI learning</strong>
-                {!ai.configured && (
-                  <small> Set AiLearning:ApiKey in appsettings to enable.</small>
-                )}
-                {ai.configured && ai.enabled && (
-                  <small> On — Export Excel and save learns corrected fields.</small>
-                )}
-                {ai.configured && !ai.enabled && (
-                  <small> Off — Export Excel and save skips AI learning.</small>
-                )}
-              </span>
-            </label>
-          </div>
-        )}
 
         {error && (
           <div className="alert danger" role="alert">
@@ -395,11 +364,6 @@ export default function ReceiptsPage() {
         {message && (
           <div className="alert info" role="status">
             {message}
-          </div>
-        )}
-        {learningToast && (
-          <div className="toast-stack" aria-live="polite">
-            <div className="alert success">{learningToast}</div>
           </div>
         )}
 
@@ -458,8 +422,7 @@ export default function ReceiptsPage() {
               ) : (
                 <>
                   Use header checkboxes to choose Excel columns. Validate each preview row, then use{' '}
-                  <strong>Export Excel and save to database</strong> (upserts by InvoiceNumber). AI learning
-                  runs for Admin when the toggle is on.
+                  <strong>Export Excel and save to database</strong> (upserts by InvoiceNumber).
                 </>
               )}
             </p>
@@ -589,8 +552,15 @@ export default function ReceiptsPage() {
                         </td>
                         <td className="col-time">
                           <input
-                            value={r.transactionTime ?? ''}
-                            onChange={(e) => updateRow(i, { transactionTime: e.target.value })}
+                            type="time"
+                            step="1"
+                            className={!r.transactionTime?.trim() ? 'invalid' : undefined}
+                            value={toTimeInputValue(r.transactionTime)}
+                            onChange={(e) =>
+                              updateRow(i, {
+                                transactionTime: e.target.value ? normalizeTimeValue(e.target.value) : null,
+                              })
+                            }
                           />
                         </td>
                         <td className="col-status">
@@ -773,6 +743,6 @@ export default function ReceiptsPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }

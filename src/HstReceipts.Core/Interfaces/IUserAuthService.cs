@@ -18,6 +18,58 @@ public interface IUserAuthService
         CancellationToken cancellationToken = default);
 
     Task EnsureSeedUsersAsync(CancellationToken cancellationToken = default);
+
+    Task<AppUser?> FindByIdAsync(Guid userId, CancellationToken cancellationToken = default);
+
+    Task<AppUser?> FindByEmailAsync(string email, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<AppUser>> ListUsersAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a user with username/email/role. A random unusable password is stored until
+    /// the account holder sets one via the emailed set-password link.
+    /// </summary>
+    Task<(bool Ok, string? Error, AppUser? User)> CreateUserAsync(
+        string username,
+        string role,
+        string email,
+        Guid requestingUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<(bool Ok, string? Error)> SetPasswordAsync(
+        Guid userId,
+        string newPassword,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Validates a proposed email change without saving it.
+    /// </summary>
+    Task<(bool Ok, string? Error)> ValidateEmailChangeAsync(
+        Guid userId,
+        string? email,
+        CancellationToken cancellationToken = default);
+
+    Task<(bool Ok, string? Error)> UpdateEmailAsync(
+        Guid userId,
+        string? email,
+        CancellationToken cancellationToken = default);
+
+    Task<(bool Ok, string? Error)> UpdateStatusAsync(
+        Guid userId,
+        bool isActive,
+        Guid requestingUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<(bool Ok, string? Error)> UpdateRoleAsync(
+        Guid userId,
+        string role,
+        Guid requestingUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<(bool Ok, string? Error)> DeleteUserAsync(
+        Guid userId,
+        Guid requestingUserId,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class CredentialValidationResult

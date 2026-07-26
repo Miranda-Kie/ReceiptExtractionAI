@@ -17,6 +17,7 @@ public class ReceiptProcessingService : IReceiptProcessingService
     };
 
     private readonly IEnumerable<ITextExtractor> _extractors;
+    private readonly IDocumentReceiptAnalyzer _documentAnalyzer;
     private readonly IReceiptFieldExtractor _fieldExtractor;
     private readonly AmazonCsvReceiptImporter _csvImporter;
     private readonly IAiCorrectionLearningService _aiLearning;
@@ -26,6 +27,7 @@ public class ReceiptProcessingService : IReceiptProcessingService
 
     public ReceiptProcessingService(
         IEnumerable<ITextExtractor> extractors,
+        IDocumentReceiptAnalyzer documentAnalyzer,
         IReceiptFieldExtractor fieldExtractor,
         AmazonCsvReceiptImporter csvImporter,
         IAiCorrectionLearningService aiLearning,
@@ -34,6 +36,7 @@ public class ReceiptProcessingService : IReceiptProcessingService
         ILogger<ReceiptProcessingService> logger)
     {
         _extractors = extractors;
+        _documentAnalyzer = documentAnalyzer;
         _fieldExtractor = fieldExtractor;
         _csvImporter = csvImporter;
         _aiLearning = aiLearning;
@@ -141,6 +144,18 @@ public class ReceiptProcessingService : IReceiptProcessingService
                 return csvRows;
             }
 
+            // Each parallel worker needs its own stream position.
+            if (file.Content.CanSeek)
+            {
+                file.Content.Position = 0;
+            }
+
+            // Prefer Azure Document Intelligence when configured (replaces local OCR).
+            if (_documentAnalyzer.CanHandle(fileName))
+            {
+                return await _documentAnalyzer.AnalyzeAsync(file.Content, receiptLabel, cancellationToken);
+            }
+
             var extractor = _extractors.FirstOrDefault(e => e.CanHandle(fileName));
             if (extractor is null)
             {
@@ -148,16 +163,12 @@ public class ReceiptProcessingService : IReceiptProcessingService
                 {
                     ReceiptName = receiptLabel,
                     Success = false,
-                    ErrorMessage = "No text extractor available for this file.",
+                    ErrorMessage = _documentAnalyzer.IsAvailable
+                        ? "Unsupported file type for Document Intelligence."
+                        : "No text extractor available. Configure DocumentIntelligence (Endpoint + ApiKey) or enable local OCR.",
                 };
                 ExtractedReceiptValidator.Apply(missing);
                 return [missing];
-            }
-
-            // Each parallel worker needs its own stream position.
-            if (file.Content.CanSeek)
-            {
-                file.Content.Position = 0;
             }
 
             var text = await extractor.ExtractTextAsync(file.Content, fileName, cancellationToken);

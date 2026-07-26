@@ -20,29 +20,31 @@ public sealed class ReceiptsApiController : ControllerBase
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    private const string AiLearningSessionKey = "AiLearningEnabled";
     private const string BatchSessionKey = "CurrentBatch";
 
     private readonly IReceiptProcessingService _processingService;
     private readonly IReceiptRepository _repository;
     private readonly IExcelExportService _excelExportService;
-    private readonly IAiCorrectionLearningService _aiLearning;
+    private readonly IReceiptBlobStore _blobStore;
     private readonly ReceiptProcessingOptions _options;
+    private readonly ProcessingPipelineOptions _pipeline;
     private readonly ILogger<ReceiptsApiController> _logger;
 
     public ReceiptsApiController(
         IReceiptProcessingService processingService,
         IReceiptRepository repository,
         IExcelExportService excelExportService,
-        IAiCorrectionLearningService aiLearning,
+        IReceiptBlobStore blobStore,
         IOptions<ReceiptProcessingOptions> options,
+        IOptions<ProcessingPipelineOptions> pipeline,
         ILogger<ReceiptsApiController> logger)
     {
         _processingService = processingService;
         _repository = repository;
         _excelExportService = excelExportService;
-        _aiLearning = aiLearning;
+        _blobStore = blobStore;
         _options = options.Value;
+        _pipeline = pipeline.Value;
         _logger = logger;
     }
 
@@ -53,27 +55,8 @@ public sealed class ReceiptsApiController : ControllerBase
         return Ok(new
         {
             batchId = batch?.BatchId,
-            receipts = batch?.Receipts ?? [],
-            aiLearning = new
-            {
-                showToggle = User.IsInRole(AppRoles.Admin),
-                configured = _aiLearning.IsEnabled,
-                enabled = IsAiLearningSessionEnabled()
-            }
+            receipts = batch?.Receipts ?? []
         });
-    }
-
-    [HttpPost("ai-learning")]
-    [Authorize(Roles = AppRoles.Admin)]
-    public IActionResult SetAiLearning([FromBody] AiLearningRequest request)
-    {
-        HttpContext.Session.SetString(AiLearningSessionKey, request.Enabled ? "1" : "0");
-        return Ok(new { enabled = request.Enabled });
-    }
-
-    public sealed class AiLearningRequest
-    {
-        public bool Enabled { get; set; }
     }
 
     [HttpPost("process")]
@@ -110,21 +93,55 @@ public sealed class ReceiptsApiController : ControllerBase
                 });
             }
 
+            if (_pipeline.UsePipeline)
+            {
+                if (!_blobStore.IsAvailable)
+                {
+                    return BadRequest(new
+                    {
+                        error = "Pipeline mode requires BlobStorage (Enabled + ConnectionString). Use Azurite (UseDevelopmentStorage=true) or an Azure Storage account."
+                    });
+                }
+
+                var batchId = Guid.NewGuid();
+                await _blobStore.WriteManifestAsync(batchId, uploads.Count, cancellationToken);
+
+                foreach (var upload in uploads)
+                {
+                    if (upload.Content.CanSeek)
+                    {
+                        upload.Content.Position = 0;
+                    }
+
+                    await _blobStore.UploadInboxAsync(batchId, upload.FileName, upload.Content, cancellationToken);
+                }
+
+                return Ok(new
+                {
+                    batchId,
+                    status = "processing",
+                    mode = "pipeline",
+                    receipts = Array.Empty<ExtractedReceipt>(),
+                    message = $"Uploaded {uploads.Count} file(s). Preview results stay in blob until you use Export Excel and save to database."
+                });
+            }
+
             var batch = await _processingService.ProcessUploadsAsync(uploads, cancellationToken);
             StoreBatchInSession(batch);
 
             return Ok(new
             {
                 batchId = batch.BatchId,
+                status = "completed",
+                mode = "inline",
                 receipts = batch.Receipts,
-                message = $"Processed {uploads.Count} file(s) into {batch.Receipts.Count} receipt(s).",
-                aiLearning = new
-                {
-                    showToggle = User.IsInRole(AppRoles.Admin),
-                    configured = _aiLearning.IsEnabled,
-                    enabled = IsAiLearningSessionEnabled()
-                }
+                message = $"Processed {uploads.Count} file(s) into {batch.Receipts.Count} receipt(s)."
             });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Receipt processing failed");
+            return StatusCode(500, new { error = ex.Message });
         }
         finally
         {
@@ -133,6 +150,39 @@ public sealed class ReceiptsApiController : ControllerBase
                 await upload.Content.DisposeAsync();
             }
         }
+    }
+
+    [HttpGet("batches/{batchId:guid}")]
+    public async Task<IActionResult> GetBatchStatus(Guid batchId, CancellationToken cancellationToken)
+    {
+        var status = await _blobStore.GetBatchStatusAsync(batchId, cancellationToken);
+        if (string.Equals(status.Status, "completed", StringComparison.OrdinalIgnoreCase)
+            && status.Receipts.Count > 0)
+        {
+            StoreBatchInSession(new ReceiptBatchResult
+            {
+                BatchId = batchId,
+                Receipts = status.Receipts.ToList()
+            });
+        }
+
+        return Ok(new
+        {
+            batchId = status.BatchId,
+            status = status.Status,
+            mode = "pipeline",
+            totalFiles = status.TotalFiles,
+            completedFiles = status.CompletedFiles,
+            failedFiles = status.FailedFiles,
+            error = status.ErrorMessage,
+            receipts = status.Receipts,
+            message = status.Status switch
+            {
+                "completed" => $"Processed {status.CompletedFiles}/{status.TotalFiles} file(s) into {status.Receipts.Count} receipt(s).",
+                "failed" => status.ErrorMessage ?? "Pipeline processing failed.",
+                _ => $"Processing {status.CompletedFiles + status.FailedFiles}/{status.TotalFiles} file(s)…"
+            }
+        });
     }
 
     public sealed class PreviewBatchRequest
@@ -263,25 +313,9 @@ public sealed class ReceiptsApiController : ControllerBase
             return StatusCode(500, new { error = "Could not save receipts to the database during export." });
         }
 
-        var learningMessage = "AI learning skipped (not admin or toggle off).";
-        if (User.IsInRole(AppRoles.Admin) && IsAiLearningSessionEnabled())
-        {
-            try
-            {
-                var learning = await _aiLearning.LearnFromCorrectedReceiptsAsync(batch.Receipts, cancellationToken);
-                learningMessage = learning.Message;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "AI learning after API export failed.");
-                learningMessage = "AI learning failed — see server logs.";
-            }
-        }
-
         var columns = ExcelExportColumns.FromSelected(request.ExportFields);
         var bytes = _excelExportService.Export(batch.Receipts, columns);
         ClearBatchFromSession();
-        Response.Headers["X-Ai-Learning-Result"] = Uri.EscapeDataString(learningMessage);
         Response.Headers["X-Save-Result"] = Uri.EscapeDataString(
             $"inserted={inserted};updated={updated};skipped={skipped};corrections={corrections}");
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -338,9 +372,6 @@ public sealed class ReceiptsApiController : ControllerBase
     {
         HttpContext.Session.Remove(BatchSessionKey);
     }
-
-    private bool IsAiLearningSessionEnabled() =>
-        string.Equals(HttpContext.Session.GetString(AiLearningSessionKey), "1", StringComparison.Ordinal);
 
     private static void ApplyPreviewEdits(ReceiptBatchResult batch, List<ReceiptFieldEdit>? edits)
     {

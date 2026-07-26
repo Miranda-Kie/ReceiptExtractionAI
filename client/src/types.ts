@@ -15,17 +15,10 @@ export type ReceiptRow = {
   validated?: boolean
 }
 
-export type AiLearningState = {
-  showToggle: boolean
-  configured: boolean
-  enabled: boolean
-}
-
 export type BatchState = {
   batchId: string
   receipts: ReceiptRow[]
   message?: string
-  aiLearning: AiLearningState
 }
 
 export const EXPORT_FIELDS = [
@@ -73,6 +66,26 @@ export function toEditPayload(r: ReceiptRow) {
 export function moneyOk(sub?: number | null, gst?: number | null, total?: number | null) {
   if (sub == null || gst == null || total == null) return false
   return Math.abs(total - (sub + gst)) <= 0.02
+}
+
+/** Normalize API/OCR times for input type="time" (needs HH:mm or HH:mm:ss). */
+export function toTimeInputValue(value?: string | null) {
+  if (!value?.trim()) return ''
+  const m = value.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/)
+  if (!m) return ''
+  const hh = m[1].padStart(2, '0')
+  const mm = m[2]
+  const ss = (m[3] ?? '00').padStart(2, '0')
+  return `${hh}:${mm}:${ss}`
+}
+
+export function normalizeTimeValue(value: string) {
+  const m = value.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/)
+  if (!m) return value.trim()
+  const hh = m[1].padStart(2, '0')
+  const mm = m[2]
+  const ss = (m[3] ?? '00').padStart(2, '0')
+  return `${hh}:${mm}:${ss}`
 }
 
 export async function downloadBlob(res: Response, fallbackName: string) {
