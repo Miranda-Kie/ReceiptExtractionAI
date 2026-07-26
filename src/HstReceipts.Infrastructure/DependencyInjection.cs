@@ -73,12 +73,10 @@ public static class DependencyInjection
         services.AddScoped<IDocumentReceiptAnalyzer, AzureDocumentReceiptAnalyzer>();
         services.AddSingleton<IReceiptBlobStore, AzureReceiptBlobStore>();
 
-        // When Azure Document Intelligence is configured it replaces local Tesseract OCR.
-        if (!documentIntelligence.IsConfigured)
-        {
-            services.AddScoped<ITextExtractor, ImageOcrTextExtractor>();
-            services.AddScoped<ITextExtractor, PdfTextExtractor>();
-        }
+        // Local OCR (Tesseract) is always available as a fallback for all roles.
+        // Azure Document Intelligence (when configured) provides better accuracy for Owners/Admins.
+        services.AddScoped<ITextExtractor, ImageOcrTextExtractor>();
+        services.AddScoped<ITextExtractor, PdfTextExtractor>();
 
         services.AddScoped<IReceiptProcessingService, ReceiptProcessingService>();
         services.AddSingleton<IExcelExportService, ExcelExportService>();

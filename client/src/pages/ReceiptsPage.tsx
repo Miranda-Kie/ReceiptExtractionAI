@@ -217,16 +217,16 @@ export default function ReceiptsPage() {
               <button
                 type="button"
                 className="btn-stamp"
-                disabled={busy || Boolean(user?.isDemo || user?.isAdmin)}
+                disabled={busy || !user?.canSaveToDatabase}
                 title={
-                  user?.isDemo
+                  user?.canSaveToDatabase ? undefined : user?.isDemo
                     ? 'Sign in with a paid account to save to the database'
                     : user?.isAdmin
                       ? 'Azure SQL database must be configured to save to the database'
-                      : undefined
+                      : 'Sign in with a paid account to save to the database'
                 }
                 onClick={() => {
-                  if (user?.isDemo || user?.isAdmin) return
+                  if (!user?.canSaveToDatabase) return
                   setError(null)
                   setShowSaveRemind(true)
                 }}

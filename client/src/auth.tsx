@@ -12,6 +12,8 @@ export type AuthUser = {
   /** True for Owner or Admin (Users page access). */
   canManageUsers?: boolean
   isDemo?: boolean
+  /** True if user can save receipts to the database. */
+  canSaveToDatabase?: boolean
 }
 
 /** Owner or Admin — can open the Users directory. */

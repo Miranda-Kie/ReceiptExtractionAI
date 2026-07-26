@@ -282,6 +282,14 @@ public sealed class ReceiptsApiController : ControllerBase
             });
         }
 
+        if (User.IsInRole(AppRoles.Officer))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                error = "Officer role cannot save to the database. Use Export Excel only."
+            });
+        }
+
         var isAdmin = User.IsInRole(AppRoles.Admin);
         if (isAdmin && !_documentIntelligence.IsConfigured)
         {

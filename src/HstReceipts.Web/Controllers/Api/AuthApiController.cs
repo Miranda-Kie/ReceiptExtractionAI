@@ -1,11 +1,13 @@
 using System.Security.Claims;
 using HstReceipts.Core.Entities;
 using HstReceipts.Core.Interfaces;
+using HstReceipts.Core.Options;
 using HstReceipts.Infrastructure.Auth;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace HstReceipts.Web.Controllers.Api;
 
@@ -19,6 +21,7 @@ public sealed class AuthApiController : ControllerBase
     private readonly ILoginVerificationService _verification;
     private readonly IEmailSender _emailSender;
     private readonly IHostEnvironment _environment;
+    private readonly DocumentIntelligenceOptions _documentIntelligence;
     private readonly ILogger<AuthApiController> _logger;
 
     public AuthApiController(
@@ -26,12 +29,14 @@ public sealed class AuthApiController : ControllerBase
         ILoginVerificationService verification,
         IEmailSender emailSender,
         IHostEnvironment environment,
+        IOptions<DocumentIntelligenceOptions> documentIntelligence,
         ILogger<AuthApiController> logger)
     {
         _authService = authService;
         _verification = verification;
         _emailSender = emailSender;
         _environment = environment;
+        _documentIntelligence = documentIntelligence.Value;
         _logger = logger;
     }
 
@@ -57,7 +62,8 @@ public sealed class AuthApiController : ControllerBase
             isOwner = AppRoles.IsOwner(role),
             isAdmin = AppRoles.IsAdmin(role),
             canManageUsers = AppRoles.CanManageUsers(role),
-            isDemo = User.IsInRole(AppRoles.Demo)
+            isDemo = User.IsInRole(AppRoles.Demo),
+            canSaveToDatabase = CanSaveToDatabase(role)
         });
     }
 
@@ -144,7 +150,8 @@ public sealed class AuthApiController : ControllerBase
             isOwner = AppRoles.IsOwner(snapshot.Role),
             isAdmin = AppRoles.IsAdmin(snapshot.Role),
             canManageUsers = AppRoles.CanManageUsers(snapshot.Role),
-            isDemo = false
+            isDemo = false,
+            canSaveToDatabase = CanSaveToDatabase(snapshot.Role)
         });
     }
 
@@ -205,7 +212,8 @@ public sealed class AuthApiController : ControllerBase
             isOwner = false,
             isAdmin = false,
             canManageUsers = false,
-            isDemo = true
+            isDemo = true,
+            canSaveToDatabase = false
         });
     }
 
@@ -293,5 +301,12 @@ public sealed class AuthApiController : ControllerBase
         HttpContext.Session.Remove(BatchSessionKey);
         HttpContext.Session.Clear();
         await HttpContext.Session.CommitAsync();
+    }
+
+    private bool CanSaveToDatabase(string role)
+    {
+        if (AppRoles.IsOwner(role)) return true;
+        if (AppRoles.IsAdmin(role)) return _documentIntelligence.IsConfigured;
+        return false;
     }
 }
