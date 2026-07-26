@@ -947,6 +947,12 @@ button *,
   white-space: nowrap;
 }
 
+.preview-table .col-export {
+  width: 4%;
+  min-width: 44px;
+  text-align: center;
+}
+
 .preview-table .col-invoice {
   width: 13%;
   min-width: 128px;
