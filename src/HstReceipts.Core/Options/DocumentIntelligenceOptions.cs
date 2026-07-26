@@ -4,6 +4,30 @@ public class DocumentIntelligenceOptions
 {
     public const string SectionName = "DocumentIntelligence";
 
+    /// <summary>Owner-specific Document Intelligence configuration.</summary>
+    public RoleDocumentIntelligence Owner { get; set; } = new();
+
+    /// <summary>Admin-specific Document Intelligence configuration.</summary>
+    public RoleDocumentIntelligence Admin { get; set; } = new();
+
+    /// <summary>
+    /// Checks if Azure Document Intelligence is configured for the given role.
+    /// Owner has independent config from Admin.
+    /// </summary>
+    public bool IsConfiguredForRole(string role) =>
+        role switch
+        {
+            "Owner" => Owner.IsConfigured,
+            "Admin" => Admin.IsConfigured,
+            _ => false
+        };
+
+    public bool IsConfigured => Owner.IsConfigured || Admin.IsConfigured;
+}
+
+/// <summary>Document Intelligence config for a specific role (Owner or Admin).</summary>
+public class RoleDocumentIntelligence
+{
     /// <summary>
     /// When true and Endpoint + ApiKey are set, Azure Document Intelligence replaces local OCR
     /// for image/PDF receipts.

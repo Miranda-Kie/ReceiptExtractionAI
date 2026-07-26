@@ -28,12 +28,22 @@
                                 ]
                   },
     "DocumentIntelligence":  {
-                                 "Enabled":  true,
-                                 "Endpoint":  "https://YOUR_RESOURCE.cognitiveservices.azure.com/",
-                                 "ApiKey":  "YOUR_DOCUMENT_INTELLIGENCE_KEY",
-                                 "ModelId":  "prebuilt-receipt",
-                                 "Locale":  "en-CA",
-                                 "FillGapsWithRules":  true
+                                 "Owner":  {
+                                     "Enabled":  true,
+                                     "Endpoint":  "https://YOUR_OWNER_RESOURCE.cognitiveservices.azure.com/",
+                                     "ApiKey":  "YOUR_OWNER_DOCUMENT_INTELLIGENCE_KEY",
+                                     "ModelId":  "prebuilt-receipt",
+                                     "Locale":  "en-CA",
+                                     "FillGapsWithRules":  true
+                                 },
+                                 "Admin":  {
+                                     "Enabled":  false,
+                                     "Endpoint":  "",
+                                     "ApiKey":  "",
+                                     "ModelId":  "prebuilt-receipt",
+                                     "Locale":  "en-CA",
+                                     "FillGapsWithRules":  true
+                                 }
                              },
     "BlobStorage":  {
                         "Enabled":  true,

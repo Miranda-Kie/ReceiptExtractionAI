@@ -305,8 +305,6 @@ public sealed class AuthApiController : ControllerBase
 
     private bool CanSaveToDatabase(string role)
     {
-        if (AppRoles.IsOwner(role)) return true;
-        if (AppRoles.IsAdmin(role)) return _documentIntelligence.IsConfigured;
-        return false;
+        return _documentIntelligence.IsConfiguredForRole(role);
     }
 }

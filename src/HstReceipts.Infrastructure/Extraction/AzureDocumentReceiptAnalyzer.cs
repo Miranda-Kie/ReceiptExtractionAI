@@ -24,6 +24,8 @@ public sealed class AzureDocumentReceiptAnalyzer : IDocumentReceiptAnalyzer
     private readonly IReceiptFieldExtractor _fieldExtractor;
     private readonly ILogger<AzureDocumentReceiptAnalyzer> _logger;
 
+    private readonly RoleDocumentIntelligence? _roleOptions;
+
     public AzureDocumentReceiptAnalyzer(
         IOptions<DocumentIntelligenceOptions> options,
         IReceiptFieldExtractor fieldExtractor,
@@ -33,11 +35,16 @@ public sealed class AzureDocumentReceiptAnalyzer : IDocumentReceiptAnalyzer
         _fieldExtractor = fieldExtractor;
         _logger = logger;
 
-        if (_options.IsConfigured)
+        // Prefer Owner config, fall back to Admin config
+        _roleOptions = _options.Owner.IsConfigured ? _options.Owner
+            : _options.Admin.IsConfigured ? _options.Admin
+            : null;
+
+        if (_roleOptions?.IsConfigured == true)
         {
             _client = new DocumentIntelligenceClient(
-                new Uri(_options.Endpoint.TrimEnd('/') + "/"),
-                new AzureKeyCredential(_options.ApiKey.Trim()));
+                new Uri(_roleOptions.Endpoint.TrimEnd('/') + "/"),
+                new AzureKeyCredential(_roleOptions.ApiKey.Trim()));
         }
     }
 
@@ -66,16 +73,16 @@ public sealed class AzureDocumentReceiptAnalyzer : IDocumentReceiptAnalyzer
         var pdfBytes = buffer.ToArray();
         var bytes = BinaryData.FromBytes(pdfBytes);
 
-        var analyzeOptions = new AnalyzeDocumentOptions(_options.ModelId, bytes);
-        if (!string.IsNullOrWhiteSpace(_options.Locale))
+        var analyzeOptions = new AnalyzeDocumentOptions(_roleOptions!.ModelId, bytes);
+        if (!string.IsNullOrWhiteSpace(_roleOptions!.Locale))
         {
-            analyzeOptions.Locale = _options.Locale;
+            analyzeOptions.Locale = _roleOptions!.Locale;
         }
 
         _logger.LogInformation(
             "Analyzing {Receipt} with Azure Document Intelligence model {Model}",
             receiptLabel,
-            _options.ModelId);
+            _roleOptions!.ModelId);
 
         Operation<AnalyzeResult> operation = await _client.AnalyzeDocumentAsync(
             WaitUntil.Completed,
@@ -150,7 +157,7 @@ public sealed class AzureDocumentReceiptAnalyzer : IDocumentReceiptAnalyzer
             });
         }
 
-        if (_options.FillGapsWithRules && !string.IsNullOrWhiteSpace(content))
+        if (_roleOptions!.FillGapsWithRules && !string.IsNullOrWhiteSpace(content))
         {
             rows = PreferRuleHybrid(rows, content, receiptLabel);
         }
@@ -187,10 +194,10 @@ public sealed class AzureDocumentReceiptAnalyzer : IDocumentReceiptAnalyzer
 
         for (var page = 1; page <= pageCount; page++)
         {
-            var pageOptions = new AnalyzeDocumentOptions(_options.ModelId, bytes);
-            if (!string.IsNullOrWhiteSpace(_options.Locale))
+            var pageOptions = new AnalyzeDocumentOptions(_roleOptions!.ModelId, bytes);
+            if (!string.IsNullOrWhiteSpace(_roleOptions!.Locale))
             {
-                pageOptions.Locale = _options.Locale;
+                pageOptions.Locale = _roleOptions!.Locale;
             }
 
             pageOptions.Pages = page.ToString(CultureInfo.InvariantCulture);
