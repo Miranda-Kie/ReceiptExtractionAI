@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useAuth } from '../auth'
 import { readJson } from '../http'
 import { applyStoredTheme } from '../theme'
@@ -62,8 +62,7 @@ export default function ReceiptsPage() {
 
   const [errorDetailsModal, setErrorDetailsModal] = useState<{ rowIndex: number; errors: string[] } | null>(null)
   const [modalPos, setModalPos] = useState({ x: 0, y: 0 })
-  const [isDraggingModal, setIsDraggingModal] = useState(false)
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     applyStoredTheme()
@@ -72,6 +71,30 @@ export default function ReceiptsPage() {
       sessionStorage.removeItem('hst-preview-batch')
     } catch {
       /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!dragStartRef.current) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragStartRef.current) return
+      setModalPos({
+        x: e.clientX - dragStartRef.current.x,
+        y: e.clientY - dragStartRef.current.y,
+      })
+    }
+
+    const handleMouseUp = () => {
+      dragStartRef.current = null
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
     }
   }, [])
 
@@ -433,14 +456,13 @@ export default function ReceiptsPage() {
               borderRadius: '8px',
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
               zIndex: 1001,
-              userSelect: isDraggingModal ? 'none' : 'auto',
+              userSelect: dragStartRef.current ? 'none' : 'auto',
             }}
             onClick={(e) => e.stopPropagation()}
           >
             <div
               onMouseDown={(e) => {
-                setIsDraggingModal(true)
-                setDragStart({ x: e.clientX - modalPos.x, y: e.clientY - modalPos.y })
+                dragStartRef.current = { x: e.clientX - modalPos.x, y: e.clientY - modalPos.y }
               }}
               style={{
                 padding: '16px 24px',
@@ -492,28 +514,6 @@ export default function ReceiptsPage() {
             </div>
           </div>
         </div>
-      )}
-
-      {isDraggingModal && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 999,
-            cursor: 'grabbing',
-          }}
-          onMouseMove={(e) => {
-            setModalPos({
-              x: e.clientX - dragStart.x,
-              y: e.clientY - dragStart.y,
-            })
-          }}
-          onMouseUp={() => setIsDraggingModal(false)}
-          onMouseLeave={() => setIsDraggingModal(false)}
-        />
       )}
     </>
   )
