@@ -21,6 +21,7 @@
     <PackageReference Include="PdfPig" Version="0.1.15" />
     <PackageReference Include="PDFtoImage" Version="5.1.1" />
     <PackageReference Include="Tesseract" Version="5.2.0" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
   </ItemGroup>
 
   <PropertyGroup>
