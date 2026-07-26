@@ -228,7 +228,18 @@ export default function ReceiptsPage() {
                   {receipts.map((r, i) => {
                     const amountsBad = !moneyOk(r.subtotal, r.gstHst, r.totalAmount)
                     const needsReview =
-                      amountsBad || !r.invoiceNumber?.trim() || !r.storeName?.trim() || !r.receiptDate
+                      amountsBad ||
+                      !r.invoiceNumber?.trim() ||
+                      !r.storeName?.trim() ||
+                      !r.currency?.trim() ||
+                      r.subtotal === null ||
+                      r.subtotal === undefined ||
+                      r.gstHst === null ||
+                      r.gstHst === undefined ||
+                      r.totalAmount === null ||
+                      r.totalAmount === undefined ||
+                      !r.receiptDate ||
+                      !r.transactionTime?.trim()
                     return (
                       <tr
                         key={`${r.receiptName}-${i}`}

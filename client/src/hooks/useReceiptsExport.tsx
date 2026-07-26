@@ -34,22 +34,40 @@ export function useReceiptsExport({
 
   function validateRequired(): string | null {
     const validatedReceipts = receipts.filter((r) => r.validated)
-    const missingInvoice: number[] = []
-    const missingStore: number[] = []
-    const missingDate: number[] = []
+    const missing: { [key: string]: number[] } = {
+      invoice: [],
+      store: [],
+      currency: [],
+      subtotal: [],
+      tax: [],
+      total: [],
+      date: [],
+      time: [],
+    }
 
     validatedReceipts.forEach((r) => {
       const originalIndex = receipts.indexOf(r) + 1
-      if (!r.invoiceNumber?.trim()) missingInvoice.push(originalIndex)
-      if (!r.storeName?.trim()) missingStore.push(originalIndex)
-      if (!r.receiptDate) missingDate.push(originalIndex)
+      if (!r.invoiceNumber?.trim()) missing.invoice.push(originalIndex)
+      if (!r.storeName?.trim()) missing.store.push(originalIndex)
+      if (!r.currency?.trim()) missing.currency.push(originalIndex)
+      if (r.subtotal === null || r.subtotal === undefined) missing.subtotal.push(originalIndex)
+      if (r.gstHst === null || r.gstHst === undefined) missing.tax.push(originalIndex)
+      if (r.totalAmount === null || r.totalAmount === undefined) missing.total.push(originalIndex)
+      if (!r.receiptDate) missing.date.push(originalIndex)
+      if (!r.transactionTime?.trim()) missing.time.push(originalIndex)
     })
 
-    if (!missingInvoice.length && !missingStore.length && !missingDate.length) return null
     const parts: string[] = []
-    if (missingInvoice.length) parts.push(`missing InvoiceNumber on row(s) ${missingInvoice.join(', ')}`)
-    if (missingStore.length) parts.push(`missing StoreName on row(s) ${missingStore.join(', ')}`)
-    if (missingDate.length) parts.push(`missing Date on row(s) ${missingDate.join(', ')}`)
+    if (missing.invoice.length) parts.push(`missing InvoiceNumber on row(s) ${missing.invoice.join(', ')}`)
+    if (missing.store.length) parts.push(`missing StoreName on row(s) ${missing.store.join(', ')}`)
+    if (missing.currency.length) parts.push(`missing Currency on row(s) ${missing.currency.join(', ')}`)
+    if (missing.subtotal.length) parts.push(`missing Subtotal on row(s) ${missing.subtotal.join(', ')}`)
+    if (missing.tax.length) parts.push(`missing GST/HST on row(s) ${missing.tax.join(', ')}`)
+    if (missing.total.length) parts.push(`missing Total Amount on row(s) ${missing.total.join(', ')}`)
+    if (missing.date.length) parts.push(`missing Date on row(s) ${missing.date.join(', ')}`)
+    if (missing.time.length) parts.push(`missing Time on row(s) ${missing.time.join(', ')}`)
+
+    if (Object.values(missing).every((arr) => arr.length === 0)) return null
     return `Cannot export: ${parts.join('; ')}.`
   }
 
