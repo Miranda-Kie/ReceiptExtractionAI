@@ -50,8 +50,8 @@ public static class DependencyInjection
                 options.UseSqlServer(connectionString, sql =>
                 {
                     sql.EnableRetryOnFailure(
-                        maxRetryCount: 5,
-                        maxRetryDelay: TimeSpan.FromSeconds(15),
+                        maxRetryCount: 10,
+                        maxRetryDelay: TimeSpan.FromSeconds(30),
                         errorNumbersToAdd: null);
                     sql.CommandTimeout(60);
                 });

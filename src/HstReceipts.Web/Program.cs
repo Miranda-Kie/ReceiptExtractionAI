@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,6 +25,9 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 builder.Services.AddInfrastructure(builder.Configuration);
+
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<ReceiptDbContext>();
 
 // Keys live only in process memory, so auth cookies become invalid when the app restarts.
 builder.Services.AddDataProtection()
@@ -131,5 +135,7 @@ app.MapGet("/", async (HttpContext context) =>
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.Redirect("/client/login");
 });
+
+app.MapHealthChecks("/healthz");
 
 app.Run();
