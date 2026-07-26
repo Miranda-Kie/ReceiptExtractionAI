@@ -423,7 +423,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
         result.GstHst = ExtractGstHst(lines);
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         result.TotalAmount = ExtractTotal(lines);
@@ -562,7 +562,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -859,7 +859,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -1025,7 +1025,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -1123,7 +1123,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -1468,7 +1468,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -1747,7 +1747,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -1932,7 +1932,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -2514,7 +2514,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -3040,7 +3040,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -4267,7 +4267,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -5661,7 +5661,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)
@@ -6703,7 +6703,7 @@ public partial class ReceiptFieldExtractor : IReceiptFieldExtractor
 
         if (result.GstHst is null)
         {
-            result.Warnings.Add("Could not find GST/HST amount.");
+            result.Warnings.Add("Could not find Tax amount.");
         }
 
         if (result.ReceiptDate is null)

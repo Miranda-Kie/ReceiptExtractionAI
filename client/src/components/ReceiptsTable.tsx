@@ -80,7 +80,7 @@ export function ReceiptsTable({
               {headerWithExport('StoreName', 'col-store', 'Store Name')}
               {headerWithExport('Currency', 'col-currency', 'Currency')}
               {headerWithExport('Subtotal', 'col-money', 'Subtotal')}
-              {headerWithExport('GstHst', 'col-money', 'GST/HST')}
+              {headerWithExport('GstHst', 'col-money', 'Tax')}
               {headerWithExport('TotalAmount', 'col-money', 'Total Amount')}
               {headerWithExport('ReceiptDate', 'col-date', 'Date')}
               {headerWithExport('TransactionTime', 'col-time', 'Time')}

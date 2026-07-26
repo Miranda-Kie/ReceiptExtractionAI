@@ -40,7 +40,7 @@ export const EXPORT_FIELD_LABELS: Record<ExportField, string> = {
   StoreName: 'Store Name',
   Currency: 'Currency',
   Subtotal: 'Subtotal',
-  GstHst: 'GST/HST',
+  GstHst: 'Tax',
   TotalAmount: 'Total Amount',
   ReceiptDate: 'Receipt Date',
   TransactionTime: 'Transaction Time',

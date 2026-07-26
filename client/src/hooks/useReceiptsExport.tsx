@@ -62,7 +62,7 @@ export function useReceiptsExport({
     if (missing.store.length) parts.push(`missing StoreName on row(s) ${missing.store.join(', ')}`)
     if (missing.currency.length) parts.push(`missing Currency on row(s) ${missing.currency.join(', ')}`)
     if (missing.subtotal.length) parts.push(`missing Subtotal on row(s) ${missing.subtotal.join(', ')}`)
-    if (missing.tax.length) parts.push(`missing GST/HST on row(s) ${missing.tax.join(', ')}`)
+    if (missing.tax.length) parts.push(`missing Tax on row(s) ${missing.tax.join(', ')}`)
     if (missing.total.length) parts.push(`missing Total Amount on row(s) ${missing.total.join(', ')}`)
     if (missing.date.length) parts.push(`missing Date on row(s) ${missing.date.join(', ')}`)
     if (missing.time.length) parts.push(`missing Time on row(s) ${missing.time.join(', ')}`)

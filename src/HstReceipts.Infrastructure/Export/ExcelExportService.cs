@@ -49,7 +49,7 @@ public class ExcelExportService : IExcelExportService
 
         if (columns.GstHst)
         {
-            headers.Add(("GST/HST", (cell, r) =>
+            headers.Add(("Tax", (cell, r) =>
             {
                 if (r.GstHst is not null)
                 {

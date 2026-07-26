@@ -218,7 +218,7 @@ export default function ReceiptsPage() {
                     {headerWithExport('StoreName', 'col-store', 'Store Name')}
                     {headerWithExport('Currency', 'col-currency', 'Currency')}
                     {headerWithExport('Subtotal', 'col-money', 'Subtotal')}
-                    {headerWithExport('GstHst', 'col-money', 'GST/HST')}
+                    {headerWithExport('GstHst', 'col-money', 'Tax')}
                     {headerWithExport('TotalAmount', 'col-money', 'Total Amount')}
                     {headerWithExport('ReceiptDate', 'col-date', 'Date')}
                     {headerWithExport('TransactionTime', 'col-time', 'Time')}
@@ -344,7 +344,7 @@ export default function ReceiptsPage() {
                                   if (!r.storeName?.trim()) errors.push('Store Name is empty')
                                   if (!r.currency?.trim()) errors.push('Currency is empty')
                                   if (r.subtotal === null || r.subtotal === undefined) errors.push('Subtotal is empty')
-                                  if (r.gstHst === null || r.gstHst === undefined) errors.push('GST/HST is empty')
+                                  if (r.gstHst === null || r.gstHst === undefined) errors.push('Tax is empty')
                                   if (r.totalAmount === null || r.totalAmount === undefined) errors.push('Total Amount is empty')
                                   if (!r.receiptDate) errors.push('Date is empty')
                                   if (!r.transactionTime?.trim()) errors.push('Time is empty')

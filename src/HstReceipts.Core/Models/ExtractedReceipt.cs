@@ -25,7 +25,7 @@ public class ExtractedReceipt
     /// <summary>Number — amount before tax.</summary>
     public decimal? Subtotal { get; set; }
 
-    /// <summary>Number — GST/HST amount.</summary>
+    /// <summary>Number — Tax amount.</summary>
     public decimal? GstHst { get; set; }
 
     /// <summary>Number — receipt total.</summary>
