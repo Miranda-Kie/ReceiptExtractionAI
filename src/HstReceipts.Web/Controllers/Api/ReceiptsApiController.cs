@@ -28,6 +28,7 @@ public sealed class ReceiptsApiController : ControllerBase
     private readonly IReceiptBlobStore _blobStore;
     private readonly ReceiptProcessingOptions _options;
     private readonly ProcessingPipelineOptions _pipeline;
+    private readonly DocumentIntelligenceOptions _documentIntelligence;
     private readonly ILogger<ReceiptsApiController> _logger;
 
     public ReceiptsApiController(
@@ -37,6 +38,7 @@ public sealed class ReceiptsApiController : ControllerBase
         IReceiptBlobStore blobStore,
         IOptions<ReceiptProcessingOptions> options,
         IOptions<ProcessingPipelineOptions> pipeline,
+        IOptions<DocumentIntelligenceOptions> documentIntelligence,
         ILogger<ReceiptsApiController> logger)
     {
         _processingService = processingService;
@@ -45,6 +47,7 @@ public sealed class ReceiptsApiController : ControllerBase
         _blobStore = blobStore;
         _options = options.Value;
         _pipeline = pipeline.Value;
+        _documentIntelligence = documentIntelligence.Value;
         _logger = logger;
     }
 
@@ -94,6 +97,7 @@ public sealed class ReceiptsApiController : ControllerBase
             }
 
             var isOwner = User.IsInRole(AppRoles.Owner);
+            var isAdmin = User.IsInRole(AppRoles.Admin);
             var usePipeline = _pipeline.UsePipeline && isOwner;
 
             if (usePipeline)
@@ -128,7 +132,10 @@ public sealed class ReceiptsApiController : ControllerBase
                     message = $"Uploaded {uploads.Count} file(s). Preview results stay in blob until you use Export Excel and save to database."
                 });
             }
-            var batch = await _processingService.ProcessUploadsAsync(uploads, isOwner, cancellationToken);
+
+            // Owner always has Azure services. Admin gets them only if configured.
+            var allowAzureServices = isOwner || (isAdmin && _documentIntelligence.IsConfigured);
+            var batch = await _processingService.ProcessUploadsAsync(uploads, allowAzureServices, cancellationToken);
             StoreBatchInSession(batch);
 
             return Ok(new
@@ -272,6 +279,15 @@ public sealed class ReceiptsApiController : ControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
                 error = "Demo mode cannot save to the database. Use Export Excel only."
+            });
+        }
+
+        var isAdmin = User.IsInRole(AppRoles.Admin);
+        if (isAdmin && !_documentIntelligence.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                error = "Azure SQL database and Document Intelligence must be configured to save to the database."
             });
         }
 
