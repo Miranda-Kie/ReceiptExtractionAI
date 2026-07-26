@@ -338,9 +338,16 @@ export default function ReceiptsPage() {
                             type="checkbox"
                             className="row-validate-check"
                             checked={Boolean(r.validated)}
-                            onChange={(e) => updateRow(i, { validated: e.target.checked })}
+                            onChange={(e) => {
+                              if (e.target.checked && needsReview) {
+                                setError(`Row ${i + 1} has errors. Check the Status column to see what needs to be fixed before validating.`)
+                                e.preventDefault()
+                              } else {
+                                updateRow(i, { validated: e.target.checked })
+                              }
+                            }}
                             aria-label={`Validate row ${i + 1}`}
-                            title="Validate this row for export"
+                            title={needsReview ? 'Fix errors before validating' : 'Validate this row for export'}
                           />
                         </td>
                       </tr>
