@@ -60,6 +60,8 @@ export default function ReceiptsPage() {
     isDemoUser: user?.isDemo,
   })
 
+  const [errorDetailsModal, setErrorDetailsModal] = useState<{ rowIndex: number; errors: string[] } | null>(null)
+
   useEffect(() => {
     applyStoredTheme()
     // Drop legacy client cache from earlier builds.
@@ -347,7 +349,7 @@ export default function ReceiptsPage() {
                                   if (!r.receiptDate) errors.push('Date is empty')
                                   if (!r.transactionTime?.trim()) errors.push('Time is empty')
                                   if (amountsBad) errors.push('Amounts do not match (Subtotal + Tax ≠ Total)')
-                                  setError(`Row ${i + 1} errors:\n• ${errors.join('\n• ')}`)
+                                  setErrorDetailsModal({ rowIndex: i, errors })
                                 }}
                                 style={{
                                   background: 'none',
@@ -408,6 +410,64 @@ export default function ReceiptsPage() {
         setConflicts={setConflicts}
         exportSave={exportSave}
       />
+
+      {errorDetailsModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setErrorDetailsModal(null)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--bg-primary, white)',
+              borderRadius: '8px',
+              padding: '24px',
+              maxWidth: '400px',
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+              maxHeight: '80vh',
+              overflowY: 'auto',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: '16px', color: '#d97706' }}>
+              Row {errorDetailsModal.rowIndex + 1} Errors
+            </h2>
+            <ul style={{ margin: 0, paddingLeft: '20px' }}>
+              {errorDetailsModal.errors.map((error, idx) => (
+                <li key={idx} style={{ marginBottom: '8px', color: 'var(--text-primary, #333)' }}>
+                  {error}
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => setErrorDetailsModal(null)}
+              style={{
+                marginTop: '16px',
+                padding: '8px 16px',
+                backgroundColor: '#d97706',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '14px',
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }
