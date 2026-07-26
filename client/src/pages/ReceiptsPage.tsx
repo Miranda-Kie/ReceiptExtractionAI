@@ -57,12 +57,10 @@ export default function ReceiptsPage() {
     setError,
     setMessage,
     setBatchId,
-    setValidationMessage,
     isDemoUser: user?.isDemo,
   })
 
   const [errorDetailsModal, setErrorDetailsModal] = useState<{ rowIndex: number; errors: string[] } | null>(null)
-  const [validationMessage, setValidationMessage] = useState<string | null>(null)
   const [modalPos, setModalPos] = useState({ x: 0, y: 0 })
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
 
@@ -182,9 +180,7 @@ export default function ReceiptsPage() {
                   Demo mode: use the header checkboxes to choose Excel columns. Validate rows, then use{' '}
                   <strong>Export Excel only</strong>.{' '}
                   <span className="demo-upsell">
-                    Saving to the database and
-                    <br />
-                    managing users require a paid account.
+                    Saving to the database and managing users require a paid account.
                   </span>
                 </>
               ) : user?.isAdmin ? (
@@ -512,79 +508,6 @@ export default function ReceiptsPage() {
                 }}
               >
                 Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {validationMessage && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            zIndex: 1000,
-          }}
-          onClick={() => setValidationMessage(null)}
-        >
-          <div
-            style={{
-              position: 'fixed',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              backgroundColor: 'var(--bg-primary, white)',
-              borderRadius: '8px',
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-              zIndex: 1001,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              style={{
-                padding: '16px 24px',
-                backgroundColor: '#f97316',
-                color: 'white',
-                borderRadius: '8px 8px 0 0',
-                display: 'flex',
-                alignItems: 'center',
-                userSelect: 'none',
-              }}
-            >
-              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
-                Validation Required
-              </h2>
-            </div>
-            <div
-              style={{
-                padding: '24px',
-                maxWidth: '400px',
-                maxHeight: '70vh',
-                overflowY: 'auto',
-                color: 'var(--text-primary, #333)',
-              }}
-            >
-              {validationMessage}
-              <button
-                type="button"
-                onClick={() => setValidationMessage(null)}
-                style={{
-                  display: 'block',
-                  marginTop: '16px',
-                  padding: '8px 16px',
-                  backgroundColor: '#f97316',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                }}
-              >
-                OK
               </button>
             </div>
           </div>
