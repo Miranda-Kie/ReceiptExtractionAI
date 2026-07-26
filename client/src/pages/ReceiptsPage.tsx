@@ -61,6 +61,9 @@ export default function ReceiptsPage() {
   })
 
   const [errorDetailsModal, setErrorDetailsModal] = useState<{ rowIndex: number; errors: string[] } | null>(null)
+  const [modalPos, setModalPos] = useState({ x: 0, y: 0 })
+  const [isDraggingModal, setIsDraggingModal] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
 
   useEffect(() => {
     applyStoredTheme()
@@ -416,53 +419,101 @@ export default function ReceiptsPage() {
             right: 0,
             bottom: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
             zIndex: 1000,
           }}
           onClick={() => setErrorDetailsModal(null)}
         >
           <div
             style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: `translate(calc(-50% + ${modalPos.x}px), calc(-50% + ${modalPos.y}px))`,
               backgroundColor: 'var(--bg-primary, white)',
               borderRadius: '8px',
-              padding: '24px',
-              maxWidth: '400px',
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-              maxHeight: '80vh',
-              overflowY: 'auto',
+              zIndex: 1001,
+              userSelect: isDraggingModal ? 'none' : 'auto',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 style={{ marginTop: 0, marginBottom: '16px', color: '#d97706' }}>
-              Row {errorDetailsModal.rowIndex + 1} Errors
-            </h2>
-            <ul style={{ margin: 0, paddingLeft: '20px' }}>
-              {errorDetailsModal.errors.map((error, idx) => (
-                <li key={idx} style={{ marginBottom: '8px', color: 'var(--text-primary, #333)' }}>
-                  {error}
-                </li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              onClick={() => setErrorDetailsModal(null)}
+            <div
+              onMouseDown={(e) => {
+                setIsDraggingModal(true)
+                setDragStart({ x: e.clientX - modalPos.x, y: e.clientY - modalPos.y })
+              }}
               style={{
-                marginTop: '16px',
-                padding: '8px 16px',
+                padding: '16px 24px',
                 backgroundColor: '#d97706',
                 color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '14px',
+                borderRadius: '8px 8px 0 0',
+                cursor: 'grab',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                userSelect: 'none',
               }}
             >
-              Close
-            </button>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
+                Row {errorDetailsModal.rowIndex + 1} Errors
+              </h2>
+            </div>
+            <div
+              style={{
+                padding: '24px',
+                maxWidth: '400px',
+                maxHeight: '70vh',
+                overflowY: 'auto',
+              }}
+            >
+              <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                {errorDetailsModal.errors.map((error, idx) => (
+                  <li key={idx} style={{ marginBottom: '8px', color: 'var(--text-primary, #333)' }}>
+                    {error}
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                onClick={() => setErrorDetailsModal(null)}
+                style={{
+                  marginTop: '16px',
+                  padding: '8px 16px',
+                  backgroundColor: '#d97706',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                }}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
+      )}
+
+      {isDraggingModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 999,
+            cursor: 'grabbing',
+          }}
+          onMouseMove={(e) => {
+            setModalPos({
+              x: e.clientX - dragStart.x,
+              y: e.clientY - dragStart.y,
+            })
+          }}
+          onMouseUp={() => setIsDraggingModal(false)}
+          onMouseLeave={() => setIsDraggingModal(false)}
+        />
       )}
     </>
   )
