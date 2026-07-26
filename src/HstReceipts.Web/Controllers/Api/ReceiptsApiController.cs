@@ -316,7 +316,10 @@ public sealed class ReceiptsApiController : ControllerBase
         ApplyPreviewEdits(batch, request.Receipts);
         StoreBatchInSession(batch);
 
-        if (TryGetMissingRequiredFieldError(batch.Receipts, out var requiredError))
+        // Only save/export the validated rows (first N rows where N = edited rows count)
+        var validatedReceipts = batch.Receipts.Take(request.Receipts?.Count ?? 0).ToList();
+
+        if (TryGetMissingRequiredFieldError(validatedReceipts, out var requiredError))
         {
             return BadRequest(new { error = requiredError });
         }
@@ -329,7 +332,7 @@ public sealed class ReceiptsApiController : ControllerBase
         {
             (inserted, updated, skipped, corrections) = await _repository.UpsertWithCorrectionsAsync(
                 batch.BatchId,
-                batch.Receipts,
+                validatedReceipts,
                 User.Identity?.Name ?? "unknown",
                 cancellationToken);
         }
@@ -340,7 +343,7 @@ public sealed class ReceiptsApiController : ControllerBase
         }
 
         var columns = ExcelExportColumns.FromSelected(request.ExportFields);
-        var bytes = _excelExportService.Export(batch.Receipts, columns);
+        var bytes = _excelExportService.Export(validatedReceipts, columns);
         Response.Headers["X-Save-Result"] = Uri.EscapeDataString(
             $"inserted={inserted};updated={updated};skipped={skipped};corrections={corrections}");
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -358,13 +361,16 @@ public sealed class ReceiptsApiController : ControllerBase
 
         ApplyPreviewEdits(batch, request.Receipts);
 
-        if (TryGetMissingRequiredFieldError(batch.Receipts, out var requiredError))
+        // Only export the validated rows (first N rows where N = edited rows count)
+        var validatedReceipts = batch.Receipts.Take(request.Receipts?.Count ?? 0).ToList();
+
+        if (TryGetMissingRequiredFieldError(validatedReceipts, out var requiredError))
         {
             return BadRequest(new { error = requiredError });
         }
 
         var columns = ExcelExportColumns.FromSelected(request.ExportFields);
-        var bytes = _excelExportService.Export(batch.Receipts, columns);
+        var bytes = _excelExportService.Export(validatedReceipts, columns);
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "receipts.xlsx");
     }
