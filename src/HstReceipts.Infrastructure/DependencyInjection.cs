@@ -5,7 +5,6 @@ using HstReceipts.Infrastructure.Auth;
 using HstReceipts.Infrastructure.Data;
 using HstReceipts.Infrastructure.Extraction;
 using HstReceipts.Infrastructure.Export;
-using HstReceipts.Infrastructure.Learning;
 using HstReceipts.Infrastructure.Repositories;
 using HstReceipts.Infrastructure.Storage;
 using Microsoft.AspNetCore.Identity;
@@ -27,8 +26,6 @@ public static class DependencyInjection
             configuration.GetSection(BlobStorageOptions.SectionName));
         services.Configure<ProcessingPipelineOptions>(
             configuration.GetSection(ProcessingPipelineOptions.SectionName));
-        services.Configure<AiLearningOptions>(
-            configuration.GetSection(AiLearningOptions.SectionName));
         services.Configure<SeedUsersOptions>(
             configuration.GetSection(SeedUsersOptions.SectionName));
         services.Configure<SmtpEmailOptions>(
@@ -67,9 +64,6 @@ public static class DependencyInjection
         services.AddSingleton<IReceiptFieldExtractor, ReceiptFieldExtractor>();
         services.AddSingleton<AmazonCsvReceiptImporter>();
         services.AddHttpContextAccessor();
-        services.AddScoped<IOpenAiUsageRecorder, OpenAiUsageRecorder>();
-        services.AddScoped<IAiCorrectionLearningService, OpenAiCorrectionLearningService>();
-        services.AddHttpClient<IAiFieldEnrichmentService, OpenAiFieldEnrichmentService>();
         services.AddScoped<IDocumentReceiptAnalyzer, AzureDocumentReceiptAnalyzer>();
         services.AddSingleton<IReceiptBlobStore, AzureReceiptBlobStore>();
 

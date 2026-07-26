@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using HstReceipts.Core.Interfaces;
 using HstReceipts.Core.Models;
 using HstReceipts.Core.Options;
-using HstReceipts.Infrastructure.Learning;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -20,8 +19,6 @@ public class ReceiptProcessingService : IReceiptProcessingService
     private readonly IDocumentReceiptAnalyzer _documentAnalyzer;
     private readonly IReceiptFieldExtractor _fieldExtractor;
     private readonly AmazonCsvReceiptImporter _csvImporter;
-    private readonly IAiCorrectionLearningService _aiLearning;
-    private readonly IAiFieldEnrichmentService _aiFieldEnrichment;
     private readonly ReceiptProcessingOptions _options;
     private readonly ILogger<ReceiptProcessingService> _logger;
 
@@ -30,8 +27,6 @@ public class ReceiptProcessingService : IReceiptProcessingService
         IDocumentReceiptAnalyzer documentAnalyzer,
         IReceiptFieldExtractor fieldExtractor,
         AmazonCsvReceiptImporter csvImporter,
-        IAiCorrectionLearningService aiLearning,
-        IAiFieldEnrichmentService aiFieldEnrichment,
         IOptions<ReceiptProcessingOptions> options,
         ILogger<ReceiptProcessingService> logger)
     {
@@ -39,8 +34,6 @@ public class ReceiptProcessingService : IReceiptProcessingService
         _documentAnalyzer = documentAnalyzer;
         _fieldExtractor = fieldExtractor;
         _csvImporter = csvImporter;
-        _aiLearning = aiLearning;
-        _aiFieldEnrichment = aiFieldEnrichment;
         _options = options.Value;
         _logger = logger;
     }
@@ -77,17 +70,9 @@ public class ReceiptProcessingService : IReceiptProcessingService
             .SelectMany(r => r.Rows)
             .ToList();
 
-        if (allowAzureServices)
-        {
-            await _aiLearning.ApplyLearnedProfilesAsync(ordered, cancellationToken);
-            // LLM fill for fields rules/profiles still missed — validated against OCR before apply.
-            await _aiFieldEnrichment.EnrichMissingFieldsAsync(ordered, cancellationToken);
-        }
-
         foreach (var row in ordered)
         {
             ReceiptFieldExtractor.FinalizeAiPremiumFoodMartRow(row);
-            ExtractionSnapshot.CaptureInitial(row);
             ExtractedReceiptValidator.Apply(row);
         }
 

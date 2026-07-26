@@ -44,17 +44,6 @@
     "Processing":  {
                        "Mode":  "Pipeline"
                    },
-    "AiLearning":  {
-                       "Enabled":  true,
-                       "ApiKey":  "YOUR_OPENAI_API_KEY",
-                       "FillMissingFields":  true,
-                       "MaxFillPerBatch":  20,
-                       "InputUsdPer1MTokens":  0.15,
-                       "OutputUsdPer1MTokens":  0.60,
-                       "MaxCallsPerUserPerDay":  50,
-                       "MaxTokensPerUserPerDay":  200000,
-                       "MaxEstimatedCostUsdPerUserPerDay":  1.00
-                   },
     "Smtp":  {
                  "Enabled":  true,
                  "Host":  "smtp.gmail.com",
