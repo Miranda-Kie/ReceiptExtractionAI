@@ -88,6 +88,7 @@ public sealed class UserAuthService : IUserAuthService
             return;
         }
 
+        bool ownerSeeded = false;
         foreach (var seed in _seedUsers.Users)
         {
             var username = seed.Username?.Trim() ?? string.Empty;
@@ -110,6 +111,19 @@ public sealed class UserAuthService : IUserAuthService
                     "Skipping seed user '{Username}': Role must be Owner, Admin, or Officer.",
                     username);
                 continue;
+            }
+
+            // Only one Owner is allowed in the system.
+            if (AppRoles.IsOwner(role))
+            {
+                if (ownerSeeded)
+                {
+                    _logger.LogWarning(
+                        "Skipping seed user '{Username}': only one Owner account is allowed.",
+                        username);
+                    continue;
+                }
+                ownerSeeded = true;
             }
 
             var wasDeleted = await _db.DeletedUsernames
@@ -175,10 +189,10 @@ public sealed class UserAuthService : IUserAuthService
             return (false, "Not authorized to create users.", null);
         }
 
-        // Owner may create Owner/Admin/Officer. Admin may create Admin/Officer. Officers cannot create users.
-        if (AppRoles.IsOwner(nextRole) && !AppRoles.IsOwner(requester.Role))
+        // Owner may create Admin/Officer. Creating a second Owner is not allowed.
+        if (AppRoles.IsOwner(nextRole))
         {
-            return (false, "Only an Owner can create Owner accounts.", null);
+            return (false, "Only one Owner account is allowed.", null);
         }
 
         if (normalizedUser.Length is < 2 or > 64)
@@ -507,9 +521,9 @@ public sealed class UserAuthService : IUserAuthService
             return (false, "Not authorized to change roles.");
         }
 
-        if (AppRoles.IsOwner(nextRole) && !AppRoles.IsOwner(requester.Role))
+        if (AppRoles.IsOwner(nextRole))
         {
-            return (false, "Only an Owner can assign the Owner role.");
+            return (false, "Only one Owner account is allowed; the Owner role cannot be assigned.");
         }
 
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);

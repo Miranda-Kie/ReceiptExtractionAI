@@ -213,6 +213,17 @@ body {
   background: var(--brand-soft);
 }
 
+.app-tab.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.demo-upsell {
+  color: var(--ink-faint, #888);
+  font-style: italic;
+}
+
 .users-table-wrap {
   margin-top: var(--space-3);
   border: 1px solid var(--border);

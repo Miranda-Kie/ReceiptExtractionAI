@@ -188,7 +188,17 @@ export default function ReceiptsPage() {
               {user?.isDemo ? (
                 <>
                   Demo mode: use the header checkboxes to choose Excel columns, then{' '}
-                  <strong>Export Excel only</strong>. Saving to the database is disabled.
+                  <strong>Export Excel only</strong>.{' '}
+                  <span className="demo-upsell">
+                    Saving to the database and managing users require a paid account.
+                  </span>
+                </>
+              ) : user?.isAdmin ? (
+                <>
+                  Use header checkboxes to choose Excel columns. Validate each preview row.{' '}
+                  <span className="demo-upsell">
+                    Azure SQL database configuration is required to save to the database.
+                  </span>
                 </>
               ) : (
                 <>
@@ -204,19 +214,25 @@ export default function ReceiptsPage() {
               <button type="button" className="ghost" onClick={() => setExportFields([])}>
                 Clear
               </button>
-              {!user?.isDemo && (
-                <button
-                  type="button"
-                  className="btn-stamp"
-                  disabled={busy}
-                  onClick={() => {
-                    setError(null)
-                    setShowSaveRemind(true)
-                  }}
-                >
-                  Export Excel and save to database
-                </button>
-              )}
+              <button
+                type="button"
+                className="btn-stamp"
+                disabled={busy || Boolean(user?.isDemo || user?.isAdmin)}
+                title={
+                  user?.isDemo
+                    ? 'Sign in with a paid account to save to the database'
+                    : user?.isAdmin
+                      ? 'Azure SQL database must be configured to save to the database'
+                      : undefined
+                }
+                onClick={() => {
+                  if (user?.isDemo || user?.isAdmin) return
+                  setError(null)
+                  setShowSaveRemind(true)
+                }}
+              >
+                Export Excel and save to database
+              </button>
               <button
                 type="button"
                 className={user?.isDemo ? 'btn-stamp' : 'btn-ghost'}
@@ -249,7 +265,7 @@ export default function ReceiptsPage() {
                     {headerWithExport('ReceiptDate', 'col-date', 'Date')}
                     {headerWithExport('TransactionTime', 'col-time', 'Time')}
                     <th className="col-status">Status</th>
-                    {!user?.isDemo && <th className="col-validate">Validate</th>}
+                    <th className="col-validate">Validate</th>
                     <th className="col-delete">Delete</th>
                   </tr>
                 </thead>
@@ -360,18 +376,17 @@ export default function ReceiptsPage() {
                             {needsReview ? 'Review' : 'OK'}
                           </span>
                         </td>
-                        {!user?.isDemo && (
-                          <td className="validate-cell col-validate">
-                            <input
-                              type="checkbox"
-                              className="row-validate-check"
-                              checked={Boolean(r.validated)}
-                              onChange={(e) => updateRow(i, { validated: e.target.checked })}
-                              aria-label={`Validate row ${i + 1}`}
-                              title="Validate this row"
-                            />
-                          </td>
-                        )}
+                        <td className="validate-cell col-validate">
+                          <input
+                            type="checkbox"
+                            className="row-validate-check"
+                            checked={Boolean(r.validated)}
+                            disabled={Boolean(user?.isDemo)}
+                            onChange={(e) => updateRow(i, { validated: e.target.checked })}
+                            aria-label={`Validate row ${i + 1}`}
+                            title={user?.isDemo ? 'Sign in with a paid account to validate rows' : 'Validate this row'}
+                          />
+                        </td>
                         <td className="delete-cell col-delete">
                           <button
                             type="button"

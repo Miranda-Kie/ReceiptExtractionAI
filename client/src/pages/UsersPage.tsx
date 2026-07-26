@@ -28,8 +28,10 @@ function canManageTargetRole(actorIsOwner: boolean, targetRole: string): boolean
 }
 
 /** Roles the signed-in actor may assign when creating or changing users. */
-function assignableRoles(actorIsOwner: boolean): DirectoryRole[] {
-  return actorIsOwner ? ['Officer', 'Admin', 'Owner'] : ['Officer', 'Admin']
+function assignableRoles(actorIsOwner: boolean, ownerExists: boolean): DirectoryRole[] {
+  if (!actorIsOwner) return ['Officer', 'Admin']
+  // Owner role is only offered when no Owner exists yet.
+  return ownerExists ? ['Officer', 'Admin'] : ['Officer', 'Admin', 'Owner']
 }
 
 type EmailChangeChallenge = {
@@ -58,8 +60,9 @@ export default function UsersPage() {
   const { user } = useAuth()
   const actorIsOwner = Boolean(user?.isOwner || user?.role === 'Owner')
   const canManageUsers = userCanManageUsers(user)
-  const roleOptions = useMemo(() => assignableRoles(actorIsOwner), [actorIsOwner])
   const [users, setUsers] = useState<ManagedUser[]>([])
+  const ownerExists = useMemo(() => users.some((u) => u.role === 'Owner'), [users])
+  const roleOptions = useMemo(() => assignableRoles(actorIsOwner, ownerExists), [actorIsOwner, ownerExists])
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)

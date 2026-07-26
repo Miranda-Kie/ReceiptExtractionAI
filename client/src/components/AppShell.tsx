@@ -22,10 +22,18 @@ export default function AppShell() {
             <NavLink to="/" end className={({ isActive }) => (isActive ? 'app-tab active' : 'app-tab')}>
               Receipts
             </NavLink>
-            {canManageUsers(user) && (
+            {canManageUsers(user) ? (
               <NavLink to="/users" className={({ isActive }) => (isActive ? 'app-tab active' : 'app-tab')}>
                 Users
               </NavLink>
+            ) : (
+              <span
+                className="app-tab disabled"
+                title="Sign in with a paid account to manage users"
+                aria-disabled="true"
+              >
+                Users
+              </span>
             )}
           </nav>
         </div>

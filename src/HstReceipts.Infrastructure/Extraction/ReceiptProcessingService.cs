@@ -47,6 +47,7 @@ public class ReceiptProcessingService : IReceiptProcessingService
 
     public async Task<ReceiptBatchResult> ProcessUploadsAsync(
         IEnumerable<UploadedReceiptFile> files,
+        bool allowAzureServices = false,
         CancellationToken cancellationToken = default)
     {
         var batchId = Guid.NewGuid();
@@ -67,7 +68,7 @@ public class ReceiptProcessingService : IReceiptProcessingService
             },
             async (item, ct) =>
             {
-                var rows = await ProcessOneAsync(item.file, ct);
+                var rows = await ProcessOneAsync(item.file, ct, allowAzureServices);
                 results.Add((item.index, rows));
             });
 
@@ -76,10 +77,12 @@ public class ReceiptProcessingService : IReceiptProcessingService
             .SelectMany(r => r.Rows)
             .ToList();
 
-        await _aiLearning.ApplyLearnedProfilesAsync(ordered, cancellationToken);
-
-        // LLM fill for fields rules/profiles still missed — validated against OCR before apply.
-        await _aiFieldEnrichment.EnrichMissingFieldsAsync(ordered, cancellationToken);
+        if (allowAzureServices)
+        {
+            await _aiLearning.ApplyLearnedProfilesAsync(ordered, cancellationToken);
+            // LLM fill for fields rules/profiles still missed — validated against OCR before apply.
+            await _aiFieldEnrichment.EnrichMissingFieldsAsync(ordered, cancellationToken);
+        }
 
         foreach (var row in ordered)
         {
@@ -97,7 +100,8 @@ public class ReceiptProcessingService : IReceiptProcessingService
 
     private async Task<IReadOnlyList<ExtractedReceipt>> ProcessOneAsync(
         UploadedReceiptFile file,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowAzureServices = false)
     {
         // Folder uploads often include a relative path (e.g. "test1/Shoppers.pdf").
         // Keep it on ReceiptName so the preview/Excel show where the file came from.
@@ -150,8 +154,8 @@ public class ReceiptProcessingService : IReceiptProcessingService
                 file.Content.Position = 0;
             }
 
-            // Prefer Azure Document Intelligence when configured (replaces local OCR).
-            if (_documentAnalyzer.CanHandle(fileName))
+            // Prefer Azure Document Intelligence when configured and the caller is an Owner.
+            if (allowAzureServices && _documentAnalyzer.CanHandle(fileName))
             {
                 return await _documentAnalyzer.AnalyzeAsync(file.Content, receiptLabel, cancellationToken);
             }
@@ -163,9 +167,9 @@ public class ReceiptProcessingService : IReceiptProcessingService
                 {
                     ReceiptName = receiptLabel,
                     Success = false,
-                    ErrorMessage = _documentAnalyzer.IsAvailable
+                    ErrorMessage = allowAzureServices && _documentAnalyzer.IsAvailable
                         ? "Unsupported file type for Document Intelligence."
-                        : "No text extractor available. Configure DocumentIntelligence (Endpoint + ApiKey) or enable local OCR.",
+                        : "No text extractor available. Sign in as Owner to use Azure Document Intelligence.",
                 };
                 ExtractedReceiptValidator.Apply(missing);
                 return [missing];

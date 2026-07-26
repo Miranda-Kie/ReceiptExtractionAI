@@ -126,7 +126,8 @@ public sealed class ReceiptsApiController : ControllerBase
                 });
             }
 
-            var batch = await _processingService.ProcessUploadsAsync(uploads, cancellationToken);
+            var isOwner = User.IsInRole(AppRoles.Owner);
+            var batch = await _processingService.ProcessUploadsAsync(uploads, isOwner, cancellationToken);
             StoreBatchInSession(batch);
 
             return Ok(new
