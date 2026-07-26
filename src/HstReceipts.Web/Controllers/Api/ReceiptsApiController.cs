@@ -341,7 +341,6 @@ public sealed class ReceiptsApiController : ControllerBase
 
         var columns = ExcelExportColumns.FromSelected(request.ExportFields);
         var bytes = _excelExportService.Export(batch.Receipts, columns);
-        ClearBatchFromSession();
         Response.Headers["X-Save-Result"] = Uri.EscapeDataString(
             $"inserted={inserted};updated={updated};skipped={skipped};corrections={corrections}");
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -366,7 +365,6 @@ public sealed class ReceiptsApiController : ControllerBase
 
         var columns = ExcelExportColumns.FromSelected(request.ExportFields);
         var bytes = _excelExportService.Export(batch.Receipts, columns);
-        ClearBatchFromSession();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "receipts.xlsx");
     }
