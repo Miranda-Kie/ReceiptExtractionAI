@@ -14,7 +14,6 @@ import {
 import { useReceiptsProcessing } from '../hooks/useReceiptsProcessing'
 import { useReceiptsExport } from '../hooks/useReceiptsExport'
 import { ReceiptUploadSection } from '../components/ReceiptUploadSection'
-import { DeleteConfirmationModal } from '../components/DeleteConfirmationModal'
 import { SaveReminderModal } from '../components/SaveReminderModal'
 import { ConflictsModal } from '../components/ConflictsModal'
 
@@ -41,8 +40,6 @@ export default function ReceiptsPage() {
   const {
     exportFields,
     setExportFields,
-    selectedForExport,
-    setSelectedForExport,
     conflicts,
     setConflicts,
     showSaveRemind,
@@ -50,8 +47,6 @@ export default function ReceiptsPage() {
     allRowsValidated,
     validatedCount,
     toggleExportField,
-    toggleExportSelection,
-    toggleAllExportSelection,
     exportOnly,
     exportSave,
     validateRequired,
@@ -64,8 +59,6 @@ export default function ReceiptsPage() {
     setBatchId,
     isDemoUser: user?.isDemo,
   })
-
-  const [deleteConfirm, setDeleteConfirm] = useState<{ index: number; label: string } | null>(null)
 
   useEffect(() => {
     applyStoredTheme()
@@ -108,35 +101,6 @@ export default function ReceiptsPage() {
   //     cancelled = true
   //   }
   // }, [user?.username, user?.isDemo, user?.authenticated])
-
-  function requestDeleteRow(index: number) {
-    const row = receipts[index]
-    if (!row) return
-    const label =
-      row.invoiceNumber?.trim() ||
-      row.storeName?.trim() ||
-      row.receiptName ||
-      `row ${index + 1}`
-    setDeleteConfirm({ index, label })
-  }
-
-  function confirmDeleteRow() {
-    if (!deleteConfirm) return
-    const { index } = deleteConfirm
-    setDeleteConfirm(null)
-
-    setReceipts((rows) => {
-      const next = rows.filter((_, i) => i !== index)
-      if (next.length === 0) {
-        setBatchId(null)
-        setMessage('All preview rows removed. Upload receipts again to start a new preview.')
-      }
-      return next
-    })
-    setError(null)
-    setConflicts(null)
-    setShowSaveRemind(false)
-  }
 
   function headerWithExport(field: string, className: string, label: string) {
     return (
@@ -187,7 +151,7 @@ export default function ReceiptsPage() {
             <p className="toolbar-note">
               {user?.isDemo ? (
                 <>
-                  Demo mode: use the header checkboxes to choose Excel columns, then{' '}
+                  Demo mode: use the header checkboxes to choose Excel columns. Validate rows, then use{' '}
                   <strong>Export Excel only</strong>.{' '}
                   <span className="demo-upsell">
                     Saving to the database and managing users require a paid account.
@@ -195,14 +159,15 @@ export default function ReceiptsPage() {
                 </>
               ) : user?.isAdmin ? (
                 <>
-                  Use header checkboxes to choose Excel columns. Validate each preview row.{' '}
+                  Use header checkboxes to choose Excel columns. Validate rows, then use{' '}
+                  <strong>Export Excel and save to database</strong>.{' '}
                   <span className="demo-upsell">
                     Azure SQL database configuration is required to save to the database.
                   </span>
                 </>
               ) : (
                 <>
-                  Use header checkboxes to choose Excel columns. Validate each preview row, then use{' '}
+                  Use header checkboxes to choose Excel columns. Validate rows, then use{' '}
                   <strong>Export Excel and save to database</strong> (upserts by InvoiceNumber).
                 </>
               )}
@@ -247,15 +212,6 @@ export default function ReceiptsPage() {
               <table className="preview-table">
                 <thead>
                   <tr>
-                    <th className="col-export">
-                      <input
-                        type="checkbox"
-                        checked={selectedForExport.every(Boolean)}
-                        onChange={(e) => toggleAllExportSelection(e.target.checked)}
-                        title="Select all rows for export"
-                        aria-label="Select all rows for export"
-                      />
-                    </th>
                     {headerWithExport('InvoiceNumber', 'col-invoice', 'Invoice Number')}
                     {headerWithExport('StoreName', 'col-store', 'Store Name')}
                     {headerWithExport('Currency', 'col-currency', 'Currency')}
@@ -266,7 +222,6 @@ export default function ReceiptsPage() {
                     {headerWithExport('TransactionTime', 'col-time', 'Time')}
                     <th className="col-status">Status</th>
                     <th className="col-validate">Validate</th>
-                    <th className="col-delete">Delete</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -279,15 +234,6 @@ export default function ReceiptsPage() {
                         key={`${r.receiptName}-${i}`}
                         className={r.validated ? 'row-validated' : undefined}
                       >
-                        <td className="col-export">
-                          <input
-                            type="checkbox"
-                            checked={selectedForExport[i] ?? false}
-                            onChange={(e) => toggleExportSelection(i, e.target.checked)}
-                            aria-label={`Select row ${i + 1} for export`}
-                            title="Select this row for export"
-                          />
-                        </td>
                         <td className="col-invoice">
                           <input
                             className={!r.invoiceNumber?.trim() ? 'invalid' : undefined}
@@ -387,17 +333,6 @@ export default function ReceiptsPage() {
                             title={user?.isDemo ? 'Sign in with a paid account to validate rows' : 'Validate this row'}
                           />
                         </td>
-                        <td className="delete-cell col-delete">
-                          <button
-                            type="button"
-                            className="btn-row-delete"
-                            disabled={busy}
-                            onClick={() => requestDeleteRow(i)}
-                            title="Delete this row"
-                          >
-                            Delete
-                          </button>
-                        </td>
                       </tr>
                     )
                   })}
@@ -407,12 +342,6 @@ export default function ReceiptsPage() {
           </section>
         )}
       </main>
-
-      <DeleteConfirmationModal
-        deleteConfirm={deleteConfirm}
-        setDeleteConfirm={setDeleteConfirm}
-        confirmDeleteRow={confirmDeleteRow}
-      />
 
       <SaveReminderModal
         showSaveRemind={showSaveRemind}

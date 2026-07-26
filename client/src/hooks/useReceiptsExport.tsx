@@ -22,9 +22,6 @@ export function useReceiptsExport({
   isDemoUser,
 }: UseReceiptsExportProps) {
   const [exportFields, setExportFields] = useState<string[]>([...EXPORT_FIELDS])
-  const [selectedForExport, setSelectedForExport] = useState<boolean[]>(
-    new Array(receipts.length).fill(true),
-  )
   const [conflicts, setConflicts] = useState<any[] | null>(null)
   const [showSaveRemind, setShowSaveRemind] = useState(false)
 
@@ -33,14 +30,6 @@ export function useReceiptsExport({
 
   function toggleExportField(field: string, checked: boolean) {
     setExportFields((prev) => (checked ? [...prev, field] : prev.filter((x) => x !== field)))
-  }
-
-  function toggleExportSelection(index: number, checked: boolean) {
-    setSelectedForExport((prev) => prev.map((val, i) => (i === index ? checked : val)))
-  }
-
-  function toggleAllExportSelection(checked: boolean) {
-    setSelectedForExport((prev) => prev.map(() => checked))
   }
 
   function validateRequired(): string | null {
@@ -66,15 +55,9 @@ export function useReceiptsExport({
       setError(err)
       return
     }
-    const selectedReceipts = receipts.filter((_, i) => selectedForExport[i])
-    if (selectedReceipts.length === 0) {
-      setError('No receipts selected for export.')
-      return
-    }
-    const allSelectedRowsValidated = selectedReceipts.every((r) => Boolean(r.validated))
-
-    if (!allSelectedRowsValidated) {
-      setError('All selected rows must be validated before export (checkbox at end of each row).')
+    const validatedReceipts = receipts.filter((r) => r.validated)
+    if (validatedReceipts.length === 0) {
+      setError('No validated rows to export. Validate rows using the checkbox at the end of each row.')
       return
     }
 
@@ -87,9 +70,9 @@ export function useReceiptsExport({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           batchId,
-          receipts: selectedReceipts.map(toEditPayload),
+          receipts: validatedReceipts.map(toEditPayload),
           exportFields,
-          previewValidated: allSelectedRowsValidated,
+          previewValidated: true,
         }),
       })
       if (!res.ok) {
@@ -112,8 +95,9 @@ export function useReceiptsExport({
       setShowSaveRemind(false)
       return
     }
-    if (!allRowsValidated) {
-      setError('Validate every preview row (checkbox at end of each row) before saving to the database.')
+    const validatedReceipts = receipts.filter((r) => r.validated)
+    if (validatedReceipts.length === 0) {
+      setError('No validated rows to save. Validate rows using the checkbox at the end of each row.')
       setShowSaveRemind(true)
       return
     }
@@ -124,9 +108,9 @@ export function useReceiptsExport({
       if (!confirmed) {
         const payload = {
           batchId,
-          receipts: receipts.map(toEditPayload),
+          receipts: validatedReceipts.map(toEditPayload),
           exportFields,
-          previewValidated: allRowsValidated,
+          previewValidated: true,
         }
         const compare = await fetch('/api/receipts/compare-export', {
           method: 'POST',
@@ -147,9 +131,9 @@ export function useReceiptsExport({
 
       const payload = {
         batchId,
-        receipts: receipts.map(toEditPayload),
+        receipts: validatedReceipts.map(toEditPayload),
         exportFields,
-        previewValidated: allRowsValidated,
+        previewValidated: true,
       }
 
       const res = await fetch('/api/receipts/export-save', {
@@ -176,8 +160,6 @@ export function useReceiptsExport({
   return {
     exportFields,
     setExportFields,
-    selectedForExport,
-    setSelectedForExport,
     conflicts,
     setConflicts,
     showSaveRemind,
@@ -185,8 +167,6 @@ export function useReceiptsExport({
     allRowsValidated,
     validatedCount,
     toggleExportField,
-    toggleExportSelection,
-    toggleAllExportSelection,
     exportOnly,
     exportSave,
     validateRequired,
