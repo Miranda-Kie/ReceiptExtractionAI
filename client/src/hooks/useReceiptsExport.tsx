@@ -9,6 +9,7 @@ interface UseReceiptsExportProps {
   setError: (error: string | null) => void
   setMessage: (message: string | null) => void
   setBatchId: (batchId: string | null) => void
+  setValidationMessage?: (message: string | null) => void
   isDemoUser: boolean | undefined
 }
 
@@ -19,6 +20,7 @@ export function useReceiptsExport({
   setError,
   setMessage,
   setBatchId,
+  setValidationMessage,
   isDemoUser,
 }: UseReceiptsExportProps) {
   const [exportFields, setExportFields] = useState<string[]>([...EXPORT_FIELDS])
@@ -79,7 +81,7 @@ export function useReceiptsExport({
     }
     const validatedReceipts = receipts.filter((r) => r.validated)
     if (validatedReceipts.length === 0) {
-      setError('No validated rows to export. Validate rows using the checkbox at the end of each row.')
+      setValidationMessage?.('No validated rows to export. Validate rows using the checkbox at the end of each row.')
       return
     }
 
@@ -118,7 +120,7 @@ export function useReceiptsExport({
     }
     const validatedReceipts = receipts.filter((r) => r.validated)
     if (validatedReceipts.length === 0) {
-      setError('No validated rows to save. Validate rows using the checkbox at the end of each row.')
+      setValidationMessage?.('No validated rows to save. Validate rows using the checkbox at the end of each row.')
       setShowSaveRemind(true)
       return
     }
