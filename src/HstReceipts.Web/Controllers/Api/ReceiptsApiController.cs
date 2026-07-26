@@ -93,7 +93,10 @@ public sealed class ReceiptsApiController : ControllerBase
                 });
             }
 
-            if (_pipeline.UsePipeline)
+            var isOwner = User.IsInRole(AppRoles.Owner);
+            var usePipeline = _pipeline.UsePipeline && isOwner;
+
+            if (usePipeline)
             {
                 if (!_blobStore.IsAvailable)
                 {
@@ -125,8 +128,6 @@ public sealed class ReceiptsApiController : ControllerBase
                     message = $"Uploaded {uploads.Count} file(s). Preview results stay in blob until you use Export Excel and save to database."
                 });
             }
-
-            var isOwner = User.IsInRole(AppRoles.Owner);
             var batch = await _processingService.ProcessUploadsAsync(uploads, isOwner, cancellationToken);
             StoreBatchInSession(batch);
 
