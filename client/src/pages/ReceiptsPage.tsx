@@ -327,10 +327,9 @@ export default function ReceiptsPage() {
                             type="checkbox"
                             className="row-validate-check"
                             checked={Boolean(r.validated)}
-                            disabled={Boolean(user?.isDemo)}
                             onChange={(e) => updateRow(i, { validated: e.target.checked })}
                             aria-label={`Validate row ${i + 1}`}
-                            title={user?.isDemo ? 'Sign in with a paid account to validate rows' : 'Validate this row'}
+                            title="Validate this row for export"
                           />
                         </td>
                       </tr>
