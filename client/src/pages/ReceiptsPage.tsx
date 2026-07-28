@@ -44,7 +44,6 @@ export default function ReceiptsPage() {
     setConflicts,
     showSaveRemind,
     setShowSaveRemind,
-    allRowsValidated,
     validatedCount,
     toggleExportField,
     exportOnly,
@@ -418,9 +417,7 @@ export default function ReceiptsPage() {
       <SaveReminderModal
         showSaveRemind={showSaveRemind}
         setShowSaveRemind={setShowSaveRemind}
-        allRowsValidated={allRowsValidated}
         validatedCount={validatedCount}
-        receiptsLength={receipts.length}
         busy={busy}
         exportSave={exportSave}
       />

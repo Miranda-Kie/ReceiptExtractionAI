@@ -107,7 +107,7 @@ export function useReceiptsProcessing() {
         elapsedSec >= 30
       setMessage(
         stillIdle
-          ? `${data.message || 'Processing…'} Waiting for the Azure Function worker — keep \`func start\` running in src/HstReceipts.Functions.`
+          ? `${data.message || 'Processing…'} Waiting for the Azure Function worker.`
           : data.message || null,
       )
       if (data.status === 'completed') {

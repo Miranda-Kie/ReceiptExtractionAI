@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { readJson } from '../http'
 import { EXPORT_FIELDS, ReceiptRow, downloadBlob, moneyOk, toEditPayload } from '../types'
 
@@ -24,6 +24,14 @@ export function useReceiptsExport({
   const [exportFields, setExportFields] = useState<string[]>([...EXPORT_FIELDS])
   const [conflicts, setConflicts] = useState<any[] | null>(null)
   const [showSaveRemind, setShowSaveRemind] = useState(false)
+
+  // Reset modal state when receipts are cleared (e.g. after logout/login).
+  useEffect(() => {
+    if (receipts.length === 0) {
+      setConflicts(null)
+      setShowSaveRemind(false)
+    }
+  }, [receipts.length])
 
   const allRowsValidated = receipts.length > 0 && receipts.every((r) => Boolean(r.validated))
   const validatedCount = receipts.filter((r) => r.validated).length
@@ -169,7 +177,6 @@ export function useReceiptsExport({
         return
       }
       setConflicts(null)
-      const saveHeader = res.headers.get('X-Save-Result')
       await downloadBlob(res, 'receipts.xlsx')
       setMessage('Saved to database and Excel downloaded. You can export again or upload more receipts.')
     } finally {

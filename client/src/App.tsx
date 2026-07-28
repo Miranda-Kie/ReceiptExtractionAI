@@ -20,6 +20,15 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function UsersOnly({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
+  // Allow Owner, Admin, and Officer to access Users page
+  if (!canManageUsers(user) && user?.role !== 'Officer') {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -39,9 +48,9 @@ export default function App() {
           <Route
             path="/users"
             element={
-              <AdminOnly>
+              <UsersOnly>
                 <UsersPage />
-              </AdminOnly>
+              </UsersOnly>
             }
           />
         </Route>

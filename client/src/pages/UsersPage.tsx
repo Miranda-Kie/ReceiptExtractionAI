@@ -56,8 +56,22 @@ function formatCountdown(totalSeconds: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+/** Mask email address by showing first char, last char, and domain. */
+function maskEmail(email?: string | null): string {
+  if (!email) return ''
+  const [local, domain] = email.split('@')
+  if (!domain || local.length < 2) return email
+  const masked = local[0] + '*'.repeat(Math.max(1, local.length - 2)) + (local[local.length - 1] || '')
+  return `${masked}@${domain}`
+}
+
+/** Officer can only view own account; Admin can view Officer/Admin; Owner can view all. */
+function canViewUsers(userRole?: string): boolean {
+  return userRole === 'Officer' || userRole === 'Admin' || userRole === 'Owner'
+}
+
 export default function UsersPage() {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
   const actorIsOwner = Boolean(user?.isOwner || user?.role === 'Owner')
   const canManageUsers = userCanManageUsers(user)
   const [users, setUsers] = useState<ManagedUser[]>([])
@@ -103,19 +117,27 @@ export default function UsersPage() {
 
   const sortedUsers = useMemo(() => {
     const selfName = user?.username
-    return [...users].sort((a, b) => {
+    const userRole = user?.role
+    // Filter users based on role: Officer sees only self, Admin sees Officer/Admin, Owner sees all
+    let filtered = users
+    if (userRole === 'Officer') {
+      filtered = users.filter((u) => u.username === selfName)
+    } else if (userRole === 'Admin') {
+      filtered = users.filter((u) => u.role === 'Officer' || u.role === 'Admin')
+    }
+    return filtered.sort((a, b) => {
       const aSelf = selfName != null && a.username === selfName
       const bSelf = selfName != null && b.username === selfName
       if (aSelf !== bSelf) return aSelf ? -1 : 1
       return a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
     })
-  }, [users, user?.username])
+  }, [users, user?.username, user?.role])
 
   const load = useCallback(async () => {
     setError(null)
     const res = await fetch('/api/users', { credentials: 'include' })
     if (res.status === 403) {
-      setError('Owner or Admin access required.')
+      setError('Access denied.')
       return
     }
     if (!res.ok) {
@@ -128,12 +150,21 @@ export default function UsersPage() {
 
   useEffect(() => {
     applyStoredTheme()
-    if (canManageUsers) {
+    if (canManageUsers || user?.role === 'Officer') {
       void load()
     }
-  }, [canManageUsers, load])
+  }, [canManageUsers, user?.role, load])
 
-  if (!canManageUsers) {
+  // Wait for auth to load before checking permissions
+  if (loading) {
+    return null
+  }
+
+  if (!user?.authenticated) {
+    return <Navigate to="/" replace />
+  }
+
+  if (!canManageUsers && user?.role !== 'Officer') {
     return <Navigate to="/" replace />
   }
 
@@ -429,17 +460,19 @@ export default function UsersPage() {
           <div>
             <h1>Users</h1>
           </div>
-          <button
-            type="button"
-            className="btn-stamp"
-            disabled={busy}
-            onClick={() => {
-              setAddError(null)
-              setShowAdd(true)
-            }}
-          >
-            Add
-          </button>
+          {canManageUsers && (
+            <button
+              type="button"
+              className="btn-stamp"
+              disabled={busy}
+              onClick={() => {
+                setAddError(null)
+                setShowAdd(true)
+              }}
+            >
+              Add
+            </button>
+          )}
         </div>
       </header>
 
@@ -491,14 +524,14 @@ export default function UsersPage() {
                     <td className="col-email">
                       <div className="email-cell">
                         <span className="email-cell-text" title={u.email || undefined}>
-                          {u.email || <span className="muted">—</span>}
+                          {u.email ? maskEmail(u.email) : <span className="muted">—</span>}
                         </span>
-                        {isSelf && (
+                        {(isSelf || canManageRow) && (
                           <button
                             type="button"
                             className="linkish"
                             disabled={busy}
-                            title="Change your email address"
+                            title={isSelf ? "Change your email address" : "Change email address"}
                             onClick={() => {
                               setEditEmailFor(u)
                               setEditEmailValue(u.email || '')
@@ -668,12 +701,13 @@ export default function UsersPage() {
             aria-labelledby="edit-email-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="edit-email-title">Change your email</h2>
+            <h2 id="edit-email-title">
+              {user?.username === editEmailFor.username ? 'Change your email' : `Change email for ${editEmailFor.username}`}
+            </h2>
             {!emailChallenge ? (
               <>
                 <p className="muted">
-                  Only you can change the email on this account. We will send a verification code to
-                  the new address; it updates only after you confirm that code.
+                  We will send a verification code to the new address; it updates only after confirming that code.
                 </p>
                 <form onSubmit={onSendEmailCode} className="auth-form">
                   <label>

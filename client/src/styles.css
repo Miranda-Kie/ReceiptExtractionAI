@@ -547,7 +547,6 @@ body {
   color: var(--brand);
   font-size: var(--text-xs);
   line-height: var(--leading-xs);
-  font-weight: 600;
 }
 
 .theme-toggle {

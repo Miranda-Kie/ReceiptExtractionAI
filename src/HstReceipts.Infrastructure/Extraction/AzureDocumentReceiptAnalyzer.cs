@@ -162,6 +162,27 @@ public sealed class AzureDocumentReceiptAnalyzer : IDocumentReceiptAnalyzer
             rows = PreferRuleHybrid(rows, content, receiptLabel);
         }
 
+        // Last-resort fallback: whole-document analysis and rule-based splitting both under-counted
+        // relative to the PDF's page count (e.g. each page is a distinct receipt DI merged into one
+        // document). Re-analyze page-by-page through Document Intelligence and keep it only if it
+        // finds more usable receipts than what we already have.
+        if (pdfPageCount >= 2 && rows.Count(IsUsablePreviewRow) < pdfPageCount)
+        {
+            var perPageRows = await AnalyzePerPageStructuredAsync(bytes, pdfPageCount, receiptLabel, cancellationToken);
+            var usablePerPage = perPageRows.Count(IsUsablePreviewRow);
+            var usableSoFar = rows.Count(IsUsablePreviewRow);
+            if (usablePerPage > usableSoFar)
+            {
+                _logger.LogInformation(
+                    "Per-page structured re-analysis found {PerPageCount} usable receipt(s) vs {ExistingCount} for {Receipt} (pdfPages={PdfPages}); using per-page results.",
+                    usablePerPage,
+                    usableSoFar,
+                    receiptLabel,
+                    pdfPageCount);
+                rows = perPageRows;
+            }
+        }
+
         foreach (var row in rows)
         {
             // Do not replace page-scoped preview with the full multi-receipt PDF text.
@@ -178,7 +199,84 @@ public sealed class AzureDocumentReceiptAnalyzer : IDocumentReceiptAnalyzer
             result.Pages?.Count ?? 0,
             pdfPageCount);
 
+        if (pdfPageCount <= 1 && rows.Count(IsUsablePreviewRow) <= 1)
+        {
+            // Single-page/image PDFs rely entirely on Document Intelligence's own multi-object
+            // detection (result.Documents). Nothing more we can split on our side — log so a
+            // genuinely multi-receipt single-page upload that under-extracts is diagnosable.
+            _logger.LogInformation(
+                "{Receipt} is single-page and produced 1 receipt; if the source image contains multiple receipts, this depends on Document Intelligence's multi-object detection.",
+                receiptLabel);
+        }
+
         return rows;
+    }
+
+    /// <summary>
+    /// Re-analyzes each PDF page individually through Document Intelligence and maps each page's
+    /// structured document as its own receipt. Used as a fallback when whole-document analysis
+    /// merges distinct per-page receipts into fewer documents than the PDF actually has pages.
+    /// Costs one extra Document Intelligence call per page — only invoked when a shortfall is detected.
+    /// </summary>
+    private async Task<List<ExtractedReceipt>> AnalyzePerPageStructuredAsync(
+        BinaryData bytes,
+        int pageCount,
+        string receiptLabel,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<ExtractedReceipt>();
+        if (_client is null || pageCount < 2)
+        {
+            return results;
+        }
+
+        for (var page = 1; page <= pageCount; page++)
+        {
+            var pageOptions = new AnalyzeDocumentOptions(_roleOptions!.ModelId, bytes);
+            if (!string.IsNullOrWhiteSpace(_roleOptions!.Locale))
+            {
+                pageOptions.Locale = _roleOptions!.Locale;
+            }
+
+            pageOptions.Pages = page.ToString(CultureInfo.InvariantCulture);
+
+            try
+            {
+                Operation<AnalyzeResult> op = await _client.AnalyzeDocumentAsync(
+                    WaitUntil.Completed,
+                    pageOptions,
+                    cancellationToken);
+                var pageResult = op.Value;
+                var pageContent = TruncatePreview((pageResult.Content ?? string.Empty).Trim());
+
+                if (pageResult.Documents is { Count: > 0 })
+                {
+                    var docIndex = 0;
+                    foreach (var document in pageResult.Documents)
+                    {
+                        docIndex++;
+                        var label = pageCount == 1 && pageResult.Documents.Count == 1
+                            ? receiptLabel
+                            : pageResult.Documents.Count > 1
+                                ? $"{receiptLabel}#p{page}-{docIndex}"
+                                : $"{receiptLabel}#p{page}";
+                        results.Add(MapDocument(document, label, pageContent));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Per-page structured Document Intelligence failed for page {Page} of {Receipt}", page, receiptLabel);
+            }
+        }
+
+        foreach (var row in results)
+        {
+            ReceiptFieldExtractor.FinalizeAiPremiumFoodMartRow(row);
+            ExtractedReceiptValidator.Apply(row);
+        }
+
+        return results;
     }
 
     private async Task<List<string>> GetPerPageOcrTextAsync(
@@ -485,6 +583,26 @@ public sealed class AzureDocumentReceiptAnalyzer : IDocumentReceiptAnalyzer
         return Math.Abs(expected - row.TotalAmount.Value) > 0.02m;
     }
 
+    /// <summary>
+    /// Fallback for receipts where Document Intelligence's own InvoiceId/ReceiptNumber/TransactionId
+    /// fields miss the order/invoice number (e.g. Walmart's "Order# 6000000-75448351" isn't
+    /// recognized by the prebuilt-receipt model's field ontology).
+    /// </summary>
+    private static readonly Regex OrderNumberPattern = new(
+        @"(?:Order|Invoice|Receipt|Transaction)\s*#\s*:?\s*([A-Za-z0-9][A-Za-z0-9\-]{4,})",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static string? ExtractOrderNumberFromText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var match = OrderNumberPattern.Match(text);
+        return match.Success ? match.Groups[1].Value.Trim() : null;
+    }
+
     private static ExtractedReceipt MapDocument(
         AnalyzedDocument document,
         string receiptLabel,
@@ -497,7 +615,8 @@ public sealed class AzureDocumentReceiptAnalyzer : IDocumentReceiptAnalyzer
             Success = true,
             SourceTextPreview = preview,
             StoreName = GetString(fields, "MerchantName"),
-            InvoiceNumber = FirstString(fields, "InvoiceId", "ReceiptNumber", "TransactionId"),
+            InvoiceNumber = FirstString(fields, "InvoiceId", "ReceiptNumber", "TransactionId")
+                ?? ExtractOrderNumberFromText(preview),
             TransactionTime = GetTime(fields, "TransactionTime"),
             ReceiptDate = GetDate(fields, "TransactionDate"),
             Subtotal = GetMoney(fields, "Subtotal"),

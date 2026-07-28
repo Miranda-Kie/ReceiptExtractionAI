@@ -9,7 +9,7 @@ namespace HstReceipts.Web.Controllers.Api;
 
 [ApiController]
 [Route("api/users")]
-[Authorize(Roles = $"{AppRoles.Owner},{AppRoles.Admin}")]
+[Authorize(Roles = $"{AppRoles.Owner},{AppRoles.Admin},{AppRoles.Officer}")]
 public sealed class UsersApiController : ControllerBase
 {
     private readonly IUserAuthService _authService;
@@ -41,7 +41,32 @@ public sealed class UsersApiController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var requesterId))
+        {
+            return Unauthorized();
+        }
+
+        var requester = await _authService.FindByIdAsync(requesterId, cancellationToken);
+        if (requester is null)
+        {
+            return Unauthorized();
+        }
+
         var users = await _authService.ListUsersAsync(cancellationToken);
+
+        // Filter users based on requester's role:
+        // - Officer sees only themselves
+        // - Admin sees Officer and Admin users
+        // - Owner sees all users
+        if (AppRoles.IsOfficer(requester.Role))
+        {
+            users = users.Where(u => u.Id == requesterId).ToList();
+        }
+        else if (AppRoles.IsAdmin(requester.Role))
+        {
+            users = users.Where(u => u.Role == AppRoles.Officer || u.Role == AppRoles.Admin).ToList();
+        }
+
         var payload = users.Select(u => new
         {
             id = u.Id,
@@ -70,6 +95,12 @@ public sealed class UsersApiController : ControllerBase
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var requesterId))
         {
             return Unauthorized();
+        }
+
+        var requester = await _authService.FindByIdAsync(requesterId, cancellationToken);
+        if (requester is null || !AppRoles.CanManageUsers(requester.Role))
+        {
+            return Forbid();
         }
 
         var (ok, error, created) = await _authService.CreateUserAsync(
@@ -209,7 +240,7 @@ public sealed class UsersApiController : ControllerBase
     }
 
     /// <summary>
-    /// Starts an email change for the signed-in account holder only.
+    /// Starts an email change for the signed-in account holder, or by an admin/owner for their managed users.
     /// The account email is updated only after <see cref="VerifyEmailChange"/>.
     /// </summary>
     [HttpPut("{id:guid}/email")]
@@ -218,9 +249,33 @@ public sealed class UsersApiController : ControllerBase
         [FromBody] UpdateEmailRequest request,
         CancellationToken cancellationToken)
     {
-        if (!IsAccountHolder(id))
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var requesterId))
         {
-            return Forbid();
+            return Unauthorized();
+        }
+
+        var isSelf = IsAccountHolder(id);
+        if (!isSelf)
+        {
+            // Allow Owner/Admin to initiate email change for users they manage
+            var requester = await _authService.FindByIdAsync(requesterId, cancellationToken);
+            if (requester is null || !AppRoles.CanManageUsers(requester.Role))
+            {
+                return Forbid();
+            }
+
+            var targetUser = await _authService.FindByIdAsync(id, cancellationToken);
+            if (targetUser is null)
+            {
+                return NotFound(new { error = "User not found." });
+            }
+
+            // Check if requester can manage this target
+            var canManageTarget = CanManageTargetRole(requester, targetUser);
+            if (!canManageTarget)
+            {
+                return Forbid();
+            }
         }
 
         var (ok, error) = await _authService.ValidateEmailChangeAsync(id, request.Email, cancellationToken);
@@ -246,9 +301,32 @@ public sealed class UsersApiController : ControllerBase
         [FromBody] VerifyEmailChangeRequest request,
         CancellationToken cancellationToken)
     {
-        if (!IsAccountHolder(id))
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var requesterId))
         {
-            return Forbid();
+            return Unauthorized();
+        }
+
+        var isSelf = IsAccountHolder(id);
+        if (!isSelf)
+        {
+            // Allow Owner/Admin to verify email change for users they manage
+            var requester = await _authService.FindByIdAsync(requesterId, cancellationToken);
+            if (requester is null || !AppRoles.CanManageUsers(requester.Role))
+            {
+                return Forbid();
+            }
+
+            var targetUser = await _authService.FindByIdAsync(id, cancellationToken);
+            if (targetUser is null)
+            {
+                return NotFound(new { error = "User not found." });
+            }
+
+            var canManageTarget = CanManageTargetRole(requester, targetUser);
+            if (!canManageTarget)
+            {
+                return Forbid();
+            }
         }
 
         var token = request.VerificationToken ?? string.Empty;
@@ -280,9 +358,32 @@ public sealed class UsersApiController : ControllerBase
         [FromBody] ResendEmailChangeRequest request,
         CancellationToken cancellationToken)
     {
-        if (!IsAccountHolder(id))
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var requesterId))
         {
-            return Forbid();
+            return Unauthorized();
+        }
+
+        var isSelf = IsAccountHolder(id);
+        if (!isSelf)
+        {
+            // Allow Owner/Admin to resend code for users they manage
+            var requester = await _authService.FindByIdAsync(requesterId, cancellationToken);
+            if (requester is null || !AppRoles.CanManageUsers(requester.Role))
+            {
+                return Forbid();
+            }
+
+            var targetUser = await _authService.FindByIdAsync(id, cancellationToken);
+            if (targetUser is null)
+            {
+                return NotFound(new { error = "User not found." });
+            }
+
+            var canManageTarget = CanManageTargetRole(requester, targetUser);
+            if (!canManageTarget)
+            {
+                return Forbid();
+            }
         }
 
         var existing = _emailChange.GetChallenge(request.VerificationToken ?? string.Empty);
@@ -350,6 +451,20 @@ public sealed class UsersApiController : ControllerBase
     private bool IsAccountHolder(Guid userId) =>
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var requesterId) &&
         requesterId == userId;
+
+    private bool CanManageTargetRole(AppUser requester, AppUser target)
+    {
+        // Owner can manage anyone
+        if (AppRoles.IsOwner(requester.Role)) return true;
+
+        // Admin can only manage Officer users
+        if (AppRoles.IsAdmin(requester.Role))
+        {
+            return target.Role == AppRoles.Officer;
+        }
+
+        return false;
+    }
 
     private object BuildEmailChangeResponse(EmailChangeChallenge challenge, bool emailSent)
     {
@@ -460,10 +575,18 @@ public sealed class UsersApiController : ControllerBase
             return Unauthorized();
         }
 
+        var isSelf = requesterId == id;
         var requester = await _authService.FindByIdAsync(requesterId, cancellationToken);
-        if (requester is null || !AppRoles.CanManageUsers(requester.Role))
+
+        // Officers may only reset their own password; Owner/Admin can also reset others'.
+        if (!isSelf && (requester is null || !AppRoles.CanManageUsers(requester.Role)))
         {
             return Forbid();
+        }
+
+        if (requester is null)
+        {
+            return Unauthorized();
         }
 
         var user = await _authService.FindByIdAsync(id, cancellationToken);
@@ -472,7 +595,6 @@ public sealed class UsersApiController : ControllerBase
             return NotFound(new { error = "User not found." });
         }
 
-        var isSelf = requesterId == id;
         // Signed-in Owner/Admin may always reset their own password; otherwise Owner-level
         // targets require an Owner actor (same rule as role/status management).
         if (!isSelf)

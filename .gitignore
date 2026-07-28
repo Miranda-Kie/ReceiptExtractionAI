@@ -41,10 +41,14 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
-# Secrets
+# Secrets & Environment Config
+appsettings.Production.json
+appsettings.Production.local.json
+appsettings.Development.local.json
 appsettings.*.local.json
 !appsettings.*.local.json.example
 admin-credentials.local.json
+local.settings.json
 *.pfx
 .env
 *.db

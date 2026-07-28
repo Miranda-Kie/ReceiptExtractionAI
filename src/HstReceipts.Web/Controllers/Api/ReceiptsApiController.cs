@@ -133,8 +133,9 @@ public sealed class ReceiptsApiController : ControllerBase
                 });
             }
 
-            // Owner always has Azure services. Admin gets them only if configured.
-            var allowAzureServices = isOwner || (isAdmin && _documentIntelligence.IsConfigured);
+            // Owner always has Azure services (developer's own resource). Admin gets them only
+            // once their own Document Intelligence config is set up (paid client tier).
+            var allowAzureServices = isOwner || (isAdmin && _documentIntelligence.IsConfiguredForRole(AppRoles.Admin));
             var batch = await _processingService.ProcessUploadsAsync(uploads, allowAzureServices, cancellationToken);
             StoreBatchInSession(batch);
 
@@ -218,7 +219,9 @@ public sealed class ReceiptsApiController : ControllerBase
         ApplyPreviewEdits(batch, request.Receipts);
         StoreBatchInSession(batch);
 
-        if (TryGetMissingRequiredFieldError(batch.Receipts, out var requiredError))
+        // Only check validated/edited receipts
+        var validatedReceipts = batch.Receipts.Take(request.Receipts?.Count ?? 0).ToList();
+        if (TryGetMissingRequiredFieldError(validatedReceipts, out var requiredError))
         {
             return BadRequest(new { error = requiredError });
         }
@@ -291,7 +294,7 @@ public sealed class ReceiptsApiController : ControllerBase
         }
 
         var isAdmin = User.IsInRole(AppRoles.Admin);
-        if (isAdmin && !_documentIntelligence.IsConfigured)
+        if (isAdmin && !_documentIntelligence.IsConfiguredForRole(AppRoles.Admin))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
@@ -455,29 +458,30 @@ public sealed class ReceiptsApiController : ControllerBase
             return false;
         }
 
-        var parts = new List<string>();
-        if (missingInvoice.Count > 0)
+        // Group missing fields by row number for clarity
+        var rowErrors = new Dictionary<int, List<string>>();
+        foreach (var row in missingInvoice)
         {
-            parts.Add(missingInvoice.Count == 1
-                ? $"row {missingInvoice[0]} is missing InvoiceNumber"
-                : $"rows {string.Join(", ", missingInvoice)} are missing InvoiceNumber");
+            if (!rowErrors.ContainsKey(row)) rowErrors[row] = new();
+            rowErrors[row].Add("InvoiceNumber");
+        }
+        foreach (var row in missingStore)
+        {
+            if (!rowErrors.ContainsKey(row)) rowErrors[row] = new();
+            rowErrors[row].Add("StoreName");
+        }
+        foreach (var row in missingDate)
+        {
+            if (!rowErrors.ContainsKey(row)) rowErrors[row] = new();
+            rowErrors[row].Add("Date");
         }
 
-        if (missingStore.Count > 0)
-        {
-            parts.Add(missingStore.Count == 1
-                ? $"row {missingStore[0]} is missing StoreName"
-                : $"rows {string.Join(", ", missingStore)} are missing StoreName");
-        }
+        var parts = rowErrors
+            .OrderBy(x => x.Key)
+            .Select(x => $"Row {x.Key}: {string.Join(", ", x.Value)}")
+            .ToList();
 
-        if (missingDate.Count > 0)
-        {
-            parts.Add(missingDate.Count == 1
-                ? $"row {missingDate[0]} is missing Date"
-                : $"rows {string.Join(", ", missingDate)} are missing Date");
-        }
-
-        error = $"Cannot export Excel: {string.Join("; ", parts)}. Enter the required values and try again.";
+        error = $"Cannot export Excel - missing required fields:\n{string.Join("\n", parts)}\n\nPlease fill in these fields and try again.";
         return true;
     }
 

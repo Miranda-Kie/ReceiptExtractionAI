@@ -22,7 +22,7 @@ export default function AppShell() {
             <NavLink to="/" end className={({ isActive }) => (isActive ? 'app-tab active' : 'app-tab')}>
               Receipts
             </NavLink>
-            {canManageUsers(user) ? (
+            {canManageUsers(user) || user?.role === 'Officer' ? (
               <NavLink to="/users" className={({ isActive }) => (isActive ? 'app-tab active' : 'app-tab')}>
                 Users
               </NavLink>
@@ -38,8 +38,8 @@ export default function AppShell() {
           </nav>
         </div>
         <div className="topbar-right">
-          <span className="user-chip" title={user?.username}>
-            {user?.role ? <em>{user.role}</em> : user?.username}
+          <span className="user-chip" title={user?.role}>
+            {user?.username}
           </span>
           <ThemeToggle />
           <button type="button" className="ghost" onClick={() => handleLogout()}>
