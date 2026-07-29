@@ -1,3 +1,4 @@
+using Azure.Storage.Blobs;
 using HstReceipts.Core.Interfaces;
 using HstReceipts.Infrastructure;
 using HstReceipts.Infrastructure.Data;
@@ -30,9 +31,26 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<ReceiptDbContext>();
 
-// Keys live only in process memory, so auth cookies become invalid when the app restarts.
-builder.Services.AddDataProtection()
-    .UseEphemeralDataProtectionProvider();
+// On hosts without a persistent disk (Render, containers generally), keys stored on the local
+// filesystem or in process memory don't survive a restart — every restart invalidates all
+// existing session/auth cookies. Persist keys to Azure Blob Storage instead when configured;
+// fall back to ephemeral (in-memory) only for local development without Blob Storage set up.
+var blobConnectionString = builder.Configuration["BlobStorage:ConnectionString"];
+var dataProtectionBuilder = builder.Services.AddDataProtection()
+    .SetApplicationName("HstReceipts");
+if (!string.IsNullOrWhiteSpace(blobConnectionString))
+{
+    const string keysContainer = "dataprotection-keys";
+    const string keysBlobName = "keys.xml";
+    var blobServiceClient = new BlobServiceClient(blobConnectionString);
+    var containerClient = blobServiceClient.GetBlobContainerClient(keysContainer);
+    containerClient.CreateIfNotExists();
+    dataProtectionBuilder.PersistKeysToAzureBlobStorage(containerClient.GetBlobClient(keysBlobName));
+}
+else
+{
+    dataProtectionBuilder.UseEphemeralDataProtectionProvider();
+}
 
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
