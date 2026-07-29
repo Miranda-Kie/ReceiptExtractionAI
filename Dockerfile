@@ -35,6 +35,8 @@ EXPOSE 5261
 
 # Set environment
 ENV ASPNETCORE_URLS=http://+:5261
+# Disable config-file hot-reload watcher — its inotify usage exceeds Render's container limits
+ENV DOTNET_hostBuilder__reloadConfigOnChange=false
 
 # Run the app
 ENTRYPOINT ["dotnet", "HstReceipts.Web.dll"]
