@@ -32,23 +32,32 @@ COPY --from=build /app/publish .
 
 # The Tesseract .NET wrapper (InteropDotNet) does NOT use system library search paths — it looks
 # specifically in an "x64" folder next to the app's own DLL (BaseDirectory + "x64/"), mimicking
-# how the Windows NuGet package bundles native binaries. Install the real libs via apt, discover
-# what actually got installed, and symlink into that exact app-relative location.
+# how the Windows NuGet package bundles leptonica-1.82.0.dll / tesseract50.dll (confirmed by
+# inspecting the local Windows build output). Install the real libs via apt, then locate them
+# using dpkg -L (package file listing — not dependent on ldconfig cache timing) and symlink into
+# that exact app-relative location. Fails the build loudly with full diagnostics if not found,
+# rather than deferring an unclear failure to runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         tesseract-ocr \
         libleptonica-dev \
         libtesseract-dev \
         libtesseract5 \
-    && LEPT_LIB=$(ldconfig -p | grep -i liblept | awk '{print $NF}' | head -1) \
-    && TESS_LIB=$(ldconfig -p | grep -i libtesseract | awk '{print $NF}' | head -1) \
+    && echo "=== libleptonica-dev contents ===" && dpkg -L libleptonica-dev | grep '\.so' \
+    && echo "=== libtesseract5 contents ===" && dpkg -L libtesseract5 | grep '\.so' \
+    && echo "=== libtesseract-dev contents ===" && dpkg -L libtesseract-dev | grep '\.so' \
+    && LEPT_LIB=$(dpkg -L libleptonica-dev libleptonica5 2>/dev/null | grep -E '\.so(\.[0-9]+)*$' | grep -i lept | head -1) \
+    && TESS_LIB=$(dpkg -L libtesseract5 libtesseract-dev 2>/dev/null | grep -E '\.so(\.[0-9]+)*$' | grep -i tesseract | head -1) \
+    && if [ -z "$LEPT_LIB" ]; then LEPT_LIB=$(find / -xdev -iname 'liblept*.so*' 2>/dev/null | head -1); fi \
+    && if [ -z "$TESS_LIB" ]; then TESS_LIB=$(find / -xdev -iname 'libtesseract*.so*' 2>/dev/null | head -1); fi \
     && echo "Resolved leptonica library: ${LEPT_LIB:-NOT FOUND}" \
     && echo "Resolved tesseract library: ${TESS_LIB:-NOT FOUND}" \
     && mkdir -p /app/x64 \
-    && if [ -n "$LEPT_LIB" ]; then ln -sf "$LEPT_LIB" /app/x64/libleptonica-1.82.0.so; fi \
-    && if [ -n "$TESS_LIB" ]; then \
-         ln -sf "$TESS_LIB" /app/x64/libtesseract53.so; \
-         ln -sf "$TESS_LIB" /app/x64/libtesseract5.so; \
+    && if [ -z "$LEPT_LIB" ] || [ -z "$TESS_LIB" ]; then \
+         echo "FATAL: could not locate native OCR libraries after install." && exit 1; \
        fi \
+    && ln -sf "$LEPT_LIB" /app/x64/libleptonica-1.82.0.so \
+    && ln -sf "$TESS_LIB" /app/x64/libtesseract50.so \
+    && ls -la /app/x64/ \
     && rm -rf /var/lib/apt/lists/*
 
 # Expose port
