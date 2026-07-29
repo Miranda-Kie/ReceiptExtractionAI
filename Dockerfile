@@ -27,6 +27,28 @@ RUN dotnet publish src/HstReceipts.Web/HstReceipts.Web.csproj -c Release -o /app
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 
+# The Tesseract .NET wrapper expects native library filenames matching its Windows-bundled DLLs
+# (e.g. libleptonica-1.82.0.so, mirroring leptonica-1.82.0.dll) which Debian's package names
+# don't match. Install the real libraries via apt, then symlink whatever actually got installed
+# to the exact filenames the interop loader looks for, discovered at build time rather than guessed.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        libleptonica-dev \
+        libtesseract-dev \
+        libtesseract5 \
+    && LEPT_LIB=$(ldconfig -p | grep -i liblept | awk '{print $NF}' | head -1) \
+    && TESS_LIB=$(ldconfig -p | grep -i libtesseract | awk '{print $NF}' | head -1) \
+    && echo "Resolved leptonica library: ${LEPT_LIB:-NOT FOUND}" \
+    && echo "Resolved tesseract library: ${TESS_LIB:-NOT FOUND}" \
+    && LIBDIR=/usr/lib/x86_64-linux-gnu \
+    && if [ -n "$LEPT_LIB" ]; then ln -sf "$LEPT_LIB" "$LIBDIR/libleptonica-1.82.0.so"; fi \
+    && if [ -n "$TESS_LIB" ]; then \
+         ln -sf "$TESS_LIB" "$LIBDIR/libtesseract53.so"; \
+         ln -sf "$TESS_LIB" "$LIBDIR/libtesseract5.so"; \
+       fi \
+    && ldconfig \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy published app from build stage
 COPY --from=build /app/publish .
 
