@@ -1,0 +1,16 @@
+bin/
+obj/
+.git/
+.gitignore
+node_modules/
+client/node_modules/
+client/dist/
+*.md
+.vs/
+.vscode/
+.claude/
+*.db
+*.db-shm
+*.db-wal
+.env
+appsettings.*.local.json
