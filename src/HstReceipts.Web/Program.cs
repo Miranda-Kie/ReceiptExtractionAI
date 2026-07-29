@@ -10,10 +10,11 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 var builder = WebApplication.CreateBuilder(args);
 
 // Local secrets (gitignored). Copy from appsettings.Development.local.json.example.
+// reloadOnChange: false — hot-reload watchers exceed container inotify limits on hosts like Render.
 builder.Configuration.AddJsonFile(
     $"appsettings.{builder.Environment.EnvironmentName}.local.json",
     optional: true,
-    reloadOnChange: true);
+    reloadOnChange: false);
 
 builder.Services.AddControllers();
 builder.Services.AddHttpContextAccessor();
